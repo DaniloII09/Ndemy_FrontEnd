@@ -2,6 +2,9 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import LoginPage from '../pages/LoginPage';
 import RegisterPage from '../pages/RegisterPage';
+import CoursesPage from '../pages/CoursesPage';
+import CourseDetailPage from '../pages/CourseDetailPage';
+import CoursePlayer from '../pages/CoursePlayer';
 
 // Muestra un loader mientras verifica la sesión
 function AuthGate({ children }) {
@@ -45,8 +48,11 @@ export default function AppRouter() {
           <Route path="/" element={<Navigate to="/courses" replace />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
-          <Route path="/courses" element={<Placeholder name="Catálogo de cursos" />} />
-          <Route path="/courses/:id" element={<Placeholder name="Detalle del curso" />} />
+          <Route path="/courses" element={<CoursesPage />} />
+          <Route path="/courses/:id" element={<CourseDetailPage />} />
+          <Route path="/courses/:id/player" element={
+          <PrivateRoute><CoursePlayer /></PrivateRoute>
+          } />
 
           {/* Privadas —- estudiante */}
           <Route path="/student/dashboard" element={
