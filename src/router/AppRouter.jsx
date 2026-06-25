@@ -5,6 +5,9 @@ import RegisterPage from '../pages/RegisterPage';
 import CoursesPage from '../pages/CoursesPage';
 import CourseDetailPage from '../pages/CourseDetailPage';
 import CoursePlayer from '../pages/CoursePlayer';
+import StudentDashboard from '../pages/StudentDashboard';
+import InstructorDashboard from '../pages/InstructorDashboard';
+import AdminDashboard from '../pages/AdminDashboard';
 
 // Muestra un loader mientras verifica la sesión
 function AuthGate({ children }) {
@@ -56,17 +59,17 @@ export default function AppRouter() {
 
           {/* Privadas —- estudiante */}
           <Route path="/student/dashboard" element={
-            <PrivateRoute><RoleRoute role="STUDENT"><Placeholder name="Dashboard Estudiante" /></RoleRoute></PrivateRoute>
+            <PrivateRoute><RoleRoute role="STUDENT"><StudentDashboard /></RoleRoute></PrivateRoute>
           } />
 
           {/* Privadas —- instructor */}
           <Route path="/instructor/dashboard" element={
-            <PrivateRoute><RoleRoute role="INSTRUCTOR"><Placeholder name="Dashboard Instructor" /></RoleRoute></PrivateRoute>
+            <PrivateRoute><RoleRoute role="INSTRUCTOR"><InstructorDashboard /></RoleRoute></PrivateRoute>
           } />
 
           {/* Privadas —- admin */}
           <Route path="/admin/dashboard" element={
-            <PrivateRoute><RoleRoute role="ADMIN"><Placeholder name="Dashboard Admin" /></RoleRoute></PrivateRoute>
+             <PrivateRoute><RoleRoute role="ADMIN"><AdminDashboard /></RoleRoute></PrivateRoute>
           } />
 
           {/* Catch-all */}
