@@ -1,162 +1,228 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import DashboardLayout from '../layouts/DashboardLayout';
+import { useNavigate } from 'react-router-dom';
 
-// Mock de datos del estudiante
-const MOCK_STUDENT_DATA = {
-  activeCourses: [
-    { id: 'uuid-course-001', title: 'Desarrollo Web con React', progress: 35, thumbnailUrl: 'https://placehold.co/120x70/3b82f6/ffffff?text=React', instructor: 'Carlos Instructor' },
-    { id: 'uuid-course-002', title: 'Java Spring Boot', progress: 10, thumbnailUrl: 'https://placehold.co/120x70/16a34a/ffffff?text=Spring', instructor: 'María González' },
-  ],
-  certificates: [
-    { id: 'cert-001', courseTitle: 'Introducción a Python', certificateCode: 'NDEMY-2024-001', issuedAt: '2024-03-15' },
-  ],
-  stats: {
-    activeCourses: 2,
-    completedCourses: 1,
-    certificates: 1,
-    hoursLearned: 14,
-  },
-};
+const STATS = [
+  { label: 'Cursos inscritos', value: '—', icon: '📚' },
+  { label: 'Lecciones completadas', value: '—', icon: '✅' },
+  { label: 'Certificados', value: '—', icon: '🏆' },
+  { label: 'Horas aprendidas', value: '—', icon: '⏱️' },
+];
 
-function StatCard({ icon, label, value, color }) {
-  return (
-    <div style={{ ...statStyles.card, borderTop: '3px solid ' + color }}>
-      <span style={statStyles.icon}>{icon}</span>
-      <div>
-        <div style={statStyles.value}>{value}</div>
-        <div style={statStyles.label}>{label}</div>
-      </div>
-    </div>
-  );
-}
+const QUICK_LINKS = [
+  { label: 'Explorar cursos',      icon: '🔍', to: '/courses',   desc: 'Descubre nuevos temas' },
+  { label: 'Mis cursos',           icon: '📖', to: '/my-courses', desc: 'Continúa donde dejaste' },
+  { label: 'Mi perfil',            icon: '👤', to: '/profile',    desc: 'Edita tu información' },
+  { label: 'Mis certificados',     icon: '🏅', to: '/certificates', desc: 'Descarga tus logros' },
+];
 
 export default function StudentDashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const data = MOCK_STUDENT_DATA;
+
+  const hour = new Date().getHours();
+  const greeting =
+    hour < 12 ? 'Buenos días' : hour < 19 ? 'Buenas tardes' : 'Buenas noches';
+
+  const firstName = user?.name?.split(' ')[0] ?? 'estudiante';
 
   return (
-    <DashboardLayout>
-      <div style={styles.page}>
-        {/* Header */}
-        <div style={styles.header}>
-          <h1 style={styles.heading}>¡Hola, {user?.name?.split(' ')[0]}! 👋</h1>
-          <p style={styles.subheading}>Continúa aprendiendo donde lo dejaste.</p>
+    <div style={s.page}>
+      {/* Hero saludo */}
+      <section style={s.hero}>
+        <div style={s.heroContent}>
+          <p style={s.heroGreeting}>{greeting} 👋</p>
+          <h1 style={s.heroName}>{firstName}</h1>
+          <p style={s.heroSub}>
+            Sigue aprendiendo — cada lección te acerca a tu próximo certificado.
+          </p>
+          <button style={s.heroBtn} onClick={() => navigate('/courses')}>
+            Explorar cursos
+          </button>
         </div>
-
-        {/* Stats */}
-        <div style={styles.statsGrid}>
-          <StatCard icon="📚" label="Cursos activos" value={data.stats.activeCourses} color="#2563eb" />
-          <StatCard icon="✅" label="Completados" value={data.stats.completedCourses} color="#16a34a" />
-          <StatCard icon="🏆" label="Certificados" value={data.stats.certificates} color="#f59e0b" />
-          <StatCard icon="⏱" label="Horas aprendidas" value={data.stats.hoursLearned} color="#9333ea" />
+        <div style={s.heroIllustration}>
+          <span style={s.illustrationEmoji}>🎓</span>
         </div>
+      </section>
 
-        {/* Cursos activos */}
-        <div style={styles.section}>
-          <div style={styles.sectionHeader}>
-            <h2 style={styles.sectionTitle}>Mis cursos activos</h2>
-            <button onClick={() => navigate('/student/my-courses')} style={styles.seeAllBtn}>
-              Ver todos →
+      {/* Estadísticas */}
+      <section style={s.section}>
+        <h2 style={s.sectionTitle}>Tu progreso</h2>
+        <div style={s.statsGrid}>
+          {STATS.map(stat => (
+            <div key={stat.label} style={s.statCard}>
+              <span style={s.statIcon}>{stat.icon}</span>
+              <span style={s.statValue}>{stat.value}</span>
+              <span style={s.statLabel}>{stat.label}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Accesos rápidos */}
+      <section style={s.section}>
+        <h2 style={s.sectionTitle}>¿Qué quieres hacer hoy?</h2>
+        <div style={s.linksGrid}>
+          {QUICK_LINKS.map(link => (
+            <button
+              key={link.label}
+              style={s.linkCard}
+              onClick={() => navigate(link.to)}
+            >
+              <span style={s.linkIcon}>{link.icon}</span>
+              <div>
+                <p style={s.linkLabel}>{link.label}</p>
+                <p style={s.linkDesc}>{link.desc}</p>
+              </div>
+              <span style={s.linkArrow}>→</span>
             </button>
+          ))}
+        </div>
+      </section>
+
+      {/* Próximamente */}
+      <section style={s.section}>
+        <div style={s.comingSoon}>
+          <span style={s.comingIcon}>🚧</span>
+          <div>
+            <p style={s.comingTitle}>Más funciones en camino</p>
+            <p style={s.comingDesc}>
+              Tus cursos en progreso, recomendaciones personalizadas y más aparecerán aquí pronto.
+            </p>
           </div>
-
-          {data.activeCourses.length === 0 ? (
-            <div style={styles.empty}>
-              <p>No tienes cursos activos.</p>
-              <button onClick={() => navigate('/courses')} style={styles.exploreBtn}>
-                Explorar cursos
-              </button>
-            </div>
-          ) : (
-            <div style={styles.courseList}>
-              {data.activeCourses.map(course => (
-                <div key={course.id} style={styles.courseCard}>
-                  <img src={course.thumbnailUrl} alt={course.title} style={styles.courseThumb} />
-                  <div style={styles.courseInfo}>
-                    <h3 style={styles.courseTitle}>{course.title}</h3>
-                    <p style={styles.courseInstructor}>por {course.instructor}</p>
-                    <div style={styles.progressRow}>
-                      <div style={styles.progressBar}>
-                        <div style={{ ...styles.progressFill, width: course.progress + '%' }} />
-                      </div>
-                      <span style={styles.progressLabel}>{course.progress}%</span>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => navigate('/courses/' + course.id + '/player')}
-                    style={styles.continueBtn}
-                  >
-                    Continuar
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
-
-        {/* Certificados */}
-        <div style={styles.section}>
-          <h2 style={styles.sectionTitle}>Mis certificados</h2>
-          {data.certificates.length === 0 ? (
-            <p style={styles.emptyText}>Aún no tienes certificados. ¡Completa tu primer curso!</p>
-          ) : (
-            <div style={styles.certList}>
-              {data.certificates.map(cert => (
-                <div key={cert.id} style={styles.certCard}>
-                  <span style={styles.certIcon}>🏆</span>
-                  <div>
-                    <p style={styles.certTitle}>{cert.courseTitle}</p>
-                    <p style={styles.certCode}>Código: {cert.certificateCode}</p>
-                    <p style={styles.certDate}>Emitido: {new Date(cert.issuedAt).toLocaleDateString('es-ES')}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    </DashboardLayout>
+      </section>
+    </div>
   );
 }
 
-const styles = {
-  page: { maxWidth: '900px' },
-  header: { marginBottom: '1.5rem' },
-  heading: { fontSize: '1.6rem', fontWeight: 700, margin: '0 0 0.25rem 0', color: '#0f172a' },
-  subheading: { color: '#64748b', margin: 0, fontSize: '0.95rem' },
-  statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '2rem' },
-  section: { background: '#fff', borderRadius: '12px', padding: '1.5rem', marginBottom: '1.5rem', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' },
-  sectionHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' },
-  sectionTitle: { fontSize: '1.1rem', fontWeight: 600, margin: 0, color: '#0f172a' },
-  seeAllBtn: { background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', fontSize: '0.875rem' },
-  empty: { textAlign: 'center', padding: '2rem', color: '#94a3b8' },
-  emptyText: { color: '#94a3b8', fontSize: '0.9rem', margin: 0 },
-  exploreBtn: { marginTop: '0.75rem', padding: '0.5rem 1.25rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer' },
-  courseList: { display: 'flex', flexDirection: 'column', gap: '1rem' },
-  courseCard: { display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.75rem', borderRadius: '8px', border: '1px solid #f1f5f9' },
-  courseThumb: { width: '100px', height: '60px', borderRadius: '6px', objectFit: 'cover', flexShrink: 0 },
-  courseInfo: { flex: 1, minWidth: 0 },
-  courseTitle: { fontSize: '0.9rem', fontWeight: 600, margin: '0 0 0.2rem 0', color: '#0f172a' },
-  courseInstructor: { fontSize: '0.8rem', color: '#94a3b8', margin: '0 0 0.5rem 0' },
-  progressRow: { display: 'flex', alignItems: 'center', gap: '0.5rem' },
-  progressBar: { flex: 1, height: '6px', background: '#e2e8f0', borderRadius: '3px', overflow: 'hidden' },
-  progressFill: { height: '100%', background: '#2563eb', borderRadius: '3px' },
-  progressLabel: { fontSize: '0.75rem', color: '#64748b', flexShrink: 0 },
-  continueBtn: { padding: '0.5rem 1rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '0.8rem', flexShrink: 0 },
-  certList: { display: 'flex', flexDirection: 'column', gap: '0.75rem' },
-  certCard: { display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.875rem 1rem', background: '#fffbeb', borderRadius: '8px', border: '1px solid #fde68a' },
-  certIcon: { fontSize: '1.75rem', flexShrink: 0 },
-  certTitle: { fontSize: '0.9rem', fontWeight: 600, margin: '0 0 0.2rem 0', color: '#0f172a' },
-  certCode: { fontSize: '0.8rem', color: '#92400e', margin: '0 0 0.1rem 0' },
-  certDate: { fontSize: '0.75rem', color: '#a16207', margin: 0 },
-};
-
-const statStyles = {
-  card: { background: '#fff', borderRadius: '12px', padding: '1.25rem', display: 'flex', alignItems: 'center', gap: '1rem', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' },
-  icon: { fontSize: '1.75rem' },
-  value: { fontSize: '1.5rem', fontWeight: 700, color: '#0f172a', lineHeight: 1 },
-  label: { fontSize: '0.8rem', color: '#64748b', marginTop: '0.2rem' },
+const s = {
+  page: {
+    maxWidth: '1100px',
+    margin: '0 auto',
+    padding: '2rem 1.5rem 4rem',
+    fontFamily: 'var(--sans)',
+    textAlign: 'left',
+  },
+  /* Hero */
+  hero: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    background: 'linear-gradient(135deg, var(--accent-bg) 0%, transparent 70%)',
+    border: '1px solid var(--accent-border)',
+    borderRadius: '20px',
+    padding: '2.5rem',
+    marginBottom: '2.5rem',
+    gap: '1rem',
+    overflow: 'hidden',
+  },
+  heroContent: { flex: 1 },
+  heroGreeting: {
+    fontSize: '0.95rem',
+    color: 'var(--accent)',
+    fontWeight: 600,
+    margin: '0 0 0.25rem',
+    textTransform: 'uppercase',
+    letterSpacing: '0.08em',
+  },
+  heroName: {
+    fontSize: '2.2rem',
+    fontWeight: 800,
+    color: 'var(--text-h)',
+    margin: '0 0 0.5rem',
+    letterSpacing: '-1px',
+  },
+  heroSub: {
+    fontSize: '1rem',
+    color: 'var(--text)',
+    margin: '0 0 1.5rem',
+    maxWidth: '420px',
+    lineHeight: 1.6,
+  },
+  heroBtn: {
+    padding: '0.65rem 1.5rem',
+    background: 'var(--accent)',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '10px',
+    fontSize: '0.9rem',
+    fontWeight: 600,
+    cursor: 'pointer',
+  },
+  heroIllustration: {
+    flexShrink: 0,
+  },
+  illustrationEmoji: {
+    fontSize: '5rem',
+    opacity: 0.8,
+    display: 'block',
+  },
+  /* Section */
+  section: { marginBottom: '2.5rem' },
+  sectionTitle: {
+    fontSize: '1.15rem',
+    fontWeight: 700,
+    color: 'var(--text-h)',
+    margin: '0 0 1rem',
+    letterSpacing: '-0.3px',
+  },
+  /* Stats */
+  statsGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+    gap: '1rem',
+  },
+  statCard: {
+    background: 'var(--bg)',
+    border: '1px solid var(--border)',
+    borderRadius: '14px',
+    padding: '1.25rem',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.3rem',
+  },
+  statIcon: { fontSize: '1.5rem' },
+  statValue: {
+    fontSize: '1.8rem',
+    fontWeight: 800,
+    color: 'var(--text-h)',
+    letterSpacing: '-1px',
+    lineHeight: 1,
+  },
+  statLabel: { fontSize: '0.8rem', color: 'var(--text)' },
+  /* Quick links */
+  linksGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
+    gap: '0.75rem',
+  },
+  linkCard: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '1rem',
+    padding: '1rem 1.25rem',
+    background: 'var(--bg)',
+    border: '1px solid var(--border)',
+    borderRadius: '12px',
+    cursor: 'pointer',
+    textAlign: 'left',
+    transition: 'border-color 0.15s',
+  },
+  linkIcon: { fontSize: '1.6rem', flexShrink: 0 },
+  linkLabel: { fontWeight: 600, color: 'var(--text-h)', fontSize: '0.9rem', margin: 0 },
+  linkDesc: { fontSize: '0.78rem', color: 'var(--text)', margin: '2px 0 0' },
+  linkArrow: { marginLeft: 'auto', color: 'var(--accent)', fontWeight: 700, flexShrink: 0 },
+  /* Coming soon */
+  comingSoon: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '1rem',
+    padding: '1.25rem 1.5rem',
+    background: 'var(--code-bg)',
+    border: '1px solid var(--border)',
+    borderRadius: '12px',
+  },
+  comingIcon: { fontSize: '1.75rem', flexShrink: 0 },
+  comingTitle: { fontWeight: 600, color: 'var(--text-h)', fontSize: '0.9rem', margin: '0 0 0.2rem' },
+  comingDesc: { fontSize: '0.82rem', color: 'var(--text)', margin: 0, lineHeight: 1.5 },
 };

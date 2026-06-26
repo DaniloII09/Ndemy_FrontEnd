@@ -56,9 +56,6 @@ export default function CourseDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Mock: simula que el estudiante ya está inscrito en el primer curso
-  const isEnrolled = isAuthenticated && id === 'uuid-course-001';
-
   useEffect(() => {
     const fetchDetail = async () => {
       setIsLoading(true);
@@ -104,6 +101,8 @@ export default function CourseDetailPage() {
   if (isLoading) return <div style={styles.center}>Cargando curso...</div>;
   if (error) return <div style={styles.center}>{error}</div>;
   if (!course) return null;
+
+  const isEnrolled = isAuthenticated && course.isEnrolled === true;
 
   return (
     <div style={styles.page}>
