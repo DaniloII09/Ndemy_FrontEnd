@@ -3,7 +3,7 @@ import axiosInstance from './axiosInstance';
 
 // ─── MOCK TEMPORAL __
 
-const MOCK_USERS = {
+/*const MOCK_USERS = {
   'student@ndemy.com':{ password: '12345678', role: 'STUDENT', name: 'Ana Estudiante' },
   'instructor@ndemy.com':{ password: '12345678', role: 'INSTRUCTOR', name: 'Carlos Instructor' },
   'admin@ndemy.com':{ password: '12345678', role: 'ADMIN', name: 'Admin Ndemy' },
@@ -54,17 +54,14 @@ const mockRegister = (name, email, password) => {
   });
 };
 // ─── FIN MOCK ────
+*/
 
 export const loginApi = async (email, password) => {
-  return await mockLogin(email, password);
-  // Cuando tengamos el backend listo, eliminaremos la línea de arriba por:
-  // const response = await axiosInstance.post('/api/auth/login', { email, password });
-  // return response.data;
+  const response = await axiosInstance.post('/api/auth/login', { email, password });
+  return response.data;
 };
-
+ 
 export const registerApi = async (name, email, password) => {
-  return mockRegister(name, email, password);
-  // Cuando tengamos el backend listo, eliminaremos la línea de arriba por:
-  // const response = await axiosInstance.post('/api/auth/register', { name, email, password });
-  // return response.data;
+  const response = await axiosInstance.post('/api/auth/register', { name, email, password });
+  return response.data;
 };
