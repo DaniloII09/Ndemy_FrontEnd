@@ -8,6 +8,8 @@ import CourseDetailPage from '../pages/CourseDetailPage';
 import CoursePlayer from '../pages/CoursePlayer';
 import StudentDashboard from '../pages/StudentDashboard';
 import CheckoutPage from '../pages/CheckoutPage';
+import InstructorDashboard from '../pages/InstructorDashboard';
+import AdminDashboard from '../pages/AdminDashboard';
 
 function AuthGate({ children }) {
   const { isLoading } = useAuth();
@@ -71,7 +73,7 @@ export default function AppRouter() {
           <Route path="/instructor/dashboard" element={
             <PrivateRoute>
               <RoleRoute role="INSTRUCTOR">
-                <Placeholder name="Dashboard Instructor" />
+                <InstructorDashboard />
               </RoleRoute>
             </PrivateRoute>
           } />
@@ -80,7 +82,7 @@ export default function AppRouter() {
           <Route path="/admin/dashboard" element={
             <PrivateRoute>
               <RoleRoute role="ADMIN">
-                <Placeholder name="Dashboard Admin" />
+                <AdminDashboard />
               </RoleRoute>
             </PrivateRoute>
           } />
