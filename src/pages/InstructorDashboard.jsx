@@ -8,6 +8,7 @@ import {
   createLessonApi,
   publishCourseApi,
 } from '../api/courses';
+import { createExamApi, createQuestionApi, createOptionApi } from '../api/exams';
 
 // ── Utilidades ────────────────────────────────────────────────
 const CONTENT_TYPES = ['VIDEO', 'PDF', 'QUIZ'];
@@ -28,10 +29,11 @@ function Badge({ text, color }) {
 
 // ── Modal creación de curso ───────────────────────────────────
 function CreateCourseModal({ onClose, onCreated }) {
-  const [step, setStep] = useState(1); // 1: curso, 2: módulos y lecciones
+  const [step, setStep] = useState(1); // 1: curso, 2: módulos/lecciones, 3: examen
   const [course, setCourse] = useState(null);
   const [form, setForm] = useState({ title: '', description: '', price: '', category: '', durationHours: '', thumbnailUrl: '' });
   const [modules, setModules] = useState([]);               // [{ title, lessons: [{title, contentType, contentUrl}] }]
+  const [exam, setExam] = useState({ passingScore: 70, timeLimitMinutes: '', questions: [] });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -58,10 +60,34 @@ function CreateCourseModal({ onClose, onCreated }) {
     } finally { setLoading(false); }
   };
 
-  // Paso 2: guardar módulos y lecciones
-  const handleSaveStructure = async () => {
-    setError(''); setLoading(true);
+  // Paso 2 → 3
+  const goToExam = () => { setError(''); setStep(3); };
+
+  // Paso 3: guardar módulos/lecciones y (si hay) el examen
+  const handleFinish = async () => {
+    setError('');
+
+    // Validación del examen (solo si el instructor agregó preguntas)
+    const hasExam = exam.questions.length > 0;
+    if (hasExam) {
+      const ps = parseInt(exam.passingScore);
+      if (isNaN(ps) || ps < 60 || ps > 100) {
+        setError('La nota mínima de aprobación debe estar entre 60 y 100.'); return;
+      }
+      for (let i = 0; i < exam.questions.length; i++) {
+        const q = exam.questions[i];
+        if (!q.text.trim()) { setError(`La pregunta ${i + 1} no tiene enunciado.`); return; }
+        const filled = q.options.filter(o => o.text.trim());
+        if (filled.length < 2) { setError(`La pregunta ${i + 1} necesita al menos 2 opciones.`); return; }
+        if (q.options.filter(o => o.isCorrect && o.text.trim()).length !== 1) {
+          setError(`Marca exactamente una opción correcta en la pregunta ${i + 1}.`); return;
+        }
+      }
+    }
+
+    setLoading(true);
     try {
+      // 1) Módulos y lecciones
       for (const mod of modules) {
         if (!mod.title.trim()) continue;
         const createdMod = await createModuleApi(course.id, { title: mod.title });
@@ -74,10 +100,27 @@ function CreateCourseModal({ onClose, onCreated }) {
           });
         }
       }
+
+      // 2) Examen (opcional, pero requerido para publicar)
+      if (hasExam) {
+        const createdExam = await createExamApi(course.id, {
+          passingScore: parseInt(exam.passingScore),
+          timeLimitMinutes: exam.timeLimitMinutes ? parseInt(exam.timeLimitMinutes) : null,
+        });
+        for (let qi = 0; qi < exam.questions.length; qi++) {
+          const q = exam.questions[qi];
+          const createdQ = await createQuestionApi(createdExam.id, { text: q.text, orderIndex: qi });
+          for (const opt of q.options) {
+            if (!opt.text.trim()) continue;
+            await createOptionApi(createdQ.id, { text: opt.text, isCorrect: !!opt.isCorrect });
+          }
+        }
+      }
+
       onCreated(course);
       onClose();
     } catch (e) {
-      setError(e.response?.data?.message ?? 'Error al guardar la estructura.');
+      setError(e.response?.data?.message ?? 'Error al guardar el curso.');
     } finally { setLoading(false); }
   };
 
@@ -90,20 +133,30 @@ function CreateCourseModal({ onClose, onCreated }) {
   }));
   const removeLesson = (mi, li) => setModules(m => m.map((x, j) => j !== mi ? x : { ...x, lessons: x.lessons.filter((_, k) => k !== li) }));
 
+  // Helpers para el examen
+  const setExamField = (k, v) => setExam(e => ({ ...e, [k]: v }));
+  const addQuestion = () => setExam(e => ({ ...e, questions: [...e.questions, { text: '', options: [{ text: '', isCorrect: true }, { text: '', isCorrect: false }] }] }));
+  const removeQuestion = (qi) => setExam(e => ({ ...e, questions: e.questions.filter((_, i) => i !== qi) }));
+  const setQuestionText = (qi, v) => setExam(e => ({ ...e, questions: e.questions.map((q, i) => i === qi ? { ...q, text: v } : q) }));
+  const addOption = (qi) => setExam(e => ({ ...e, questions: e.questions.map((q, i) => i !== qi ? q : { ...q, options: [...q.options, { text: '', isCorrect: false }] }) }));
+  const removeOption = (qi, oi) => setExam(e => ({ ...e, questions: e.questions.map((q, i) => i !== qi ? q : { ...q, options: q.options.filter((_, k) => k !== oi) }) }));
+  const setOptionText = (qi, oi, v) => setExam(e => ({ ...e, questions: e.questions.map((q, i) => i !== qi ? q : { ...q, options: q.options.map((o, k) => k === oi ? { ...o, text: v } : o) }) }));
+  const setCorrect = (qi, oi) => setExam(e => ({ ...e, questions: e.questions.map((q, i) => i !== qi ? q : { ...q, options: q.options.map((o, k) => ({ ...o, isCorrect: k === oi })) }) }));
+
   return (
     <div style={m.overlay}>
       <div style={m.modal}>
         {/* Header */}
         <div style={m.header}>
           <div>
-            <p style={m.stepLabel}>Paso {step} de 2</p>
-            <h2 style={m.title}>{step === 1 ? 'Nuevo curso' : 'Estructura del curso'}</h2>
+            <p style={m.stepLabel}>Paso {step} de 3</p>
+            <h2 style={m.title}>{step === 1 ? 'Nuevo curso' : step === 2 ? 'Estructura del curso' : 'Examen del curso'}</h2>
           </div>
           <button onClick={onClose} style={m.closeBtn}>✕</button>
         </div>
 
         {/* Progress */}
-        <div style={m.progressBar}><div style={{ ...m.progressFill, width: step === 1 ? '50%' : '100%' }} /></div>
+        <div style={m.progressBar}><div style={{ ...m.progressFill, width: step === 1 ? '33%' : step === 2 ? '66%' : '100%' }} /></div>
 
         <div style={m.body}>
           {error && <p style={m.error}>{error}</p>}
@@ -167,13 +220,73 @@ function CreateCourseModal({ onClose, onCreated }) {
               <button onClick={addModule} style={m.addModuleBtn}>+ Agregar módulo</button>
             </div>
           )}
+
+          {step === 3 && (
+            <div>
+              <p style={m.hint}>
+                Crea el examen final. <strong>Un curso necesita un examen para poder publicarse.</strong> Los
+                estudiantes lo rinden al completar el 100% de las lecciones y reciben su certificado al aprobar.
+              </p>
+
+              <div style={m.grid2}>
+                <div>
+                  <label style={m.label}>Nota mínima de aprobación (%) <span style={m.req}>*</span></label>
+                  <input style={m.input} type="number" min="60" max="100" value={exam.passingScore}
+                    onChange={e => setExamField('passingScore', e.target.value)} placeholder="70" />
+                </div>
+                <div>
+                  <label style={m.label}>Tiempo límite (min, opcional)</label>
+                  <input style={m.input} type="number" min="5" max="300" value={exam.timeLimitMinutes}
+                    onChange={e => setExamField('timeLimitMinutes', e.target.value)} placeholder="30" />
+                </div>
+              </div>
+
+              {exam.questions.map((q, qi) => (
+                <div key={qi} style={m.moduleCard}>
+                  <div style={m.moduleHeader}>
+                    <span style={m.moduleNum}>Pregunta {qi + 1}</span>
+                    <input style={{ ...m.input, flex: 1, marginBottom: 0 }} value={q.text}
+                      onChange={e => setQuestionText(qi, e.target.value)} placeholder="Enunciado de la pregunta" />
+                    <button onClick={() => removeQuestion(qi)} style={m.removeBtn}>✕</button>
+                  </div>
+                  <p style={{ ...m.hint, margin: '0 0 0.5rem' }}>Marca la opción correcta (el ● verde):</p>
+                  {q.options.map((o, oi) => (
+                    <div key={oi} style={m.lessonRow}>
+                      <button
+                        onClick={() => setCorrect(qi, oi)}
+                        title="Marcar como correcta"
+                        style={{ ...m.correctDot, ...(o.isCorrect ? m.correctDotOn : {}) }}
+                      >
+                        {o.isCorrect ? '●' : '○'}
+                      </button>
+                      <input style={{ ...m.input, flex: 1, marginBottom: 0 }} value={o.text}
+                        onChange={e => setOptionText(qi, oi, e.target.value)} placeholder={`Opción ${oi + 1}`} />
+                      {q.options.length > 2 && (
+                        <button onClick={() => removeOption(qi, oi)} style={m.removeBtn}>✕</button>
+                      )}
+                    </div>
+                  ))}
+                  <button onClick={() => addOption(qi)} style={m.addLessonBtn}>+ Opción</button>
+                </div>
+              ))}
+
+              <button onClick={addQuestion} style={m.addModuleBtn}>+ Agregar pregunta</button>
+              {exam.questions.length === 0 && (
+                <p style={{ ...m.hint, marginTop: '0.75rem' }}>
+                  Si terminas sin examen, el curso quedará como <strong>borrador</strong> hasta que agregues uno.
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Footer */}
         <div style={m.footer}>
           {step === 2 && <button onClick={() => setStep(1)} style={m.btnSecondary}>← Atrás</button>}
+          {step === 3 && <button onClick={() => setStep(2)} style={m.btnSecondary}>← Atrás</button>}
           {step === 1 && <button onClick={handleCreateCourse} disabled={loading} style={m.btnPrimary}>{loading ? 'Creando...' : 'Crear curso →'}</button>}
-          {step === 2 && <button onClick={handleSaveStructure} disabled={loading} style={m.btnPrimary}>{loading ? 'Guardando...' : 'Guardar y terminar'}</button>}
+          {step === 2 && <button onClick={goToExam} style={m.btnPrimary}>Siguiente: Examen →</button>}
+          {step === 3 && <button onClick={handleFinish} disabled={loading} style={m.btnPrimary}>{loading ? 'Guardando...' : 'Guardar y terminar'}</button>}
         </div>
       </div>
     </div>
@@ -552,6 +665,24 @@ const m = {
     cursor: 'pointer',
     padding: '0.45rem 0.6rem',
     fontSize: '0.8rem',
+  },
+  correctDot: {
+    flexShrink: 0,
+    width: '34px',
+    height: '34px',
+    borderRadius: '50%',
+    border: '1px solid #e5e7eb',
+    background: '#fff',
+    color: '#9ca3af',
+    cursor: 'pointer',
+    fontSize: '1rem',
+    lineHeight: 1,
+  },
+  correctDotOn: {
+    border: '1px solid #16a34a',
+    color: '#16a34a',
+    background: '#dcfce7',
+    fontWeight: 700,
   },
   addLessonBtn: {
     background: 'none',
