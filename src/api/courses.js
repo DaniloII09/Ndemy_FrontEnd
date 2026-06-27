@@ -4,13 +4,13 @@ export const getCoursesApi = async ({ search = '', category = '', page = 0, size
   const response = await axiosInstance.get('/api/courses', {
     params: { search: search || undefined, category: category || undefined, page, size },
   });
-  // El backend devuelve GeneralResponse { data: Page<CourseSummaryResponse> }
+  // backend devuelve GeneralResponse { data: Page<CourseSummaryResponse> }
   return response.data.data;
 };
 
 export const getCourseDetailApi = async (courseId) => {
   const response = await axiosInstance.get(`/api/courses/${courseId}`);
-  // El backend devuelve GeneralResponse { data: CourseDetailResponse }
+  // backend devuelve GeneralResponse { data: CourseDetailResponse }
   return response.data.data;
 };
 
@@ -19,6 +19,15 @@ export const checkoutApi = async (courseId, couponCode = null) => {
     courseId,
     ...(couponCode ? { couponCode } : {}),
   });
+  return response.data.data;
+};
+
+// Valida un cupón y devuelve el precio con descuento (sin cobrar todavía)
+export const previewCouponApi = async (courseId, code) => {
+  const response = await axiosInstance.get('/api/coupons/preview', {
+    params: { courseId, code },
+  });
+  // GeneralResponse { data: CouponPreviewResponse }
   return response.data.data;
 };
 

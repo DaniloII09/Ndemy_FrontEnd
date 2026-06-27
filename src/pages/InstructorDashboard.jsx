@@ -203,7 +203,7 @@ export default function InstructorDashboard() {
     setPublishing(courseId);
     try {
       await publishCourseApi(courseId);
-      setCourses(cs => cs.map(c => c.id === courseId ? { ...c, isPublished: true } : c));
+      setCourses(cs => cs.map(c => c.courseId === courseId ? { ...c, isPublished: true } : c));
       showToast('✅ Curso publicado exitosamente');
     } catch (e) {
       showToast('❌ ' + (e.response?.data?.message ?? 'No se pudo publicar'));
@@ -221,7 +221,7 @@ export default function InstructorDashboard() {
       {showCreate && (
         <CreateCourseModal
           onClose={() => setShowCreate(false)}
-          onCreated={(c) => { setCourses(cs => [c, ...cs]); showToast('✅ Curso creado'); }}
+          onCreated={(c) => { setCourses(cs => [{ ...c, courseId: c.courseId ?? c.id }, ...cs]); showToast('✅ Curso creado'); }}
         />
       )}
 
@@ -270,7 +270,7 @@ export default function InstructorDashboard() {
               <span style={{ flex: 1 }}>Acciones</span>
             </div>
             {courses.map(course => (
-              <div key={course.id} style={s.tableRow}>
+              <div key={course.courseId} style={s.tableRow}>
                 <div style={{ flex: 3 }}>
                   <p style={s.courseTitle}>{course.title}</p>
                   <p style={s.courseCategory}>{course.category}</p>
@@ -280,14 +280,14 @@ export default function InstructorDashboard() {
                   <Badge text={course.isPublished ? 'Publicado' : 'Borrador'} color={course.isPublished ? 'green' : 'yellow'} />
                 </span>
                 <div style={{ flex: 1, display: 'flex', gap: '0.5rem' }}>
-                  <button onClick={() => navigate(`/courses/${course.id}`)} style={s.rowBtn}>Ver</button>
+                  <button onClick={() => navigate(`/courses/${course.courseId}`)} style={s.rowBtn}>Ver</button>
                   {!course.isPublished && (
                     <button
-                      onClick={() => handlePublish(course.id)}
-                      disabled={publishing === course.id}
+                      onClick={() => handlePublish(course.courseId)}
+                      disabled={publishing === course.courseId}
                       style={{ ...s.rowBtn, ...s.rowBtnPublish }}
                     >
-                      {publishing === course.id ? '...' : 'Publicar'}
+                      {publishing === course.courseId ? '...' : 'Publicar'}
                     </button>
                   )}
                 </div>
@@ -372,6 +372,55 @@ const s = {
     border: '2px dashed #e5e7eb',
     borderRadius: '16px',
     color: '#6b7280',
+  },
+
+  section: { marginTop: '0.5rem' },
+  empty: { color: '#6b7280', fontSize: '0.9rem', padding: '1rem 0' },
+
+  table: {
+    border: '1px solid #e5e7eb',
+    borderRadius: '14px',
+    overflow: 'hidden',
+    background: '#ffffff',
+    marginTop: '1rem',
+  },
+  tableHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+    padding: '0.85rem 1.25rem',
+    background: '#f9fafb',
+    borderBottom: '1px solid #e5e7eb',
+    fontSize: '0.75rem',
+    fontWeight: 700,
+    color: '#6b7280',
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em',
+  },
+  tableRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+    padding: '1rem 1.25rem',
+    borderBottom: '1px solid #f3f4f6',
+  },
+  courseTitle: { fontWeight: 600, color: '#111827', fontSize: '0.95rem', margin: 0 },
+  courseCategory: { fontSize: '0.78rem', color: '#6b7280', margin: '0.15rem 0 0' },
+
+  rowBtn: {
+    padding: '0.4rem 0.85rem',
+    border: '1px solid #e5e7eb',
+    borderRadius: '8px',
+    background: '#fff',
+    color: '#111827',
+    cursor: 'pointer',
+    fontSize: '0.8rem',
+    fontWeight: 600,
+  },
+  rowBtnPublish: {
+    background: '#6366f1',
+    color: '#fff',
+    border: 'none',
   },
 };
 
@@ -467,6 +516,61 @@ const m = {
     borderRadius: '8px',
     background: '#fff',
     color: '#111827',
+    cursor: 'pointer',
+  },
+
+  stepLabel: { fontSize: '0.72rem', fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: '0.04em', margin: 0 },
+  progressBar: { height: '4px', background: '#eef2ff', margin: '0 1.5rem', borderRadius: '999px', overflow: 'hidden' },
+  progressFill: { height: '100%', background: '#6366f1', borderRadius: '999px', transition: 'width 0.3s' },
+  grid2: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.9rem' },
+  req: { color: '#dc2626' },
+  error: {
+    fontSize: '0.85rem',
+    color: '#dc2626',
+    background: '#fef2f2',
+    border: '1px solid #fecaca',
+    borderRadius: '8px',
+    padding: '0.6rem 0.85rem',
+    margin: '0 0 1rem',
+  },
+  hint: { fontSize: '0.82rem', color: '#6b7280', margin: '0 0 1rem' },
+  moduleCard: {
+    border: '1px solid #e5e7eb',
+    borderRadius: '12px',
+    padding: '1rem',
+    marginBottom: '1rem',
+    background: '#fafafa',
+  },
+  moduleHeader: { display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.75rem' },
+  moduleNum: { fontSize: '0.72rem', fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', whiteSpace: 'nowrap' },
+  lessonRow: { display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.5rem' },
+  removeBtn: {
+    background: '#fff',
+    border: '1px solid #e5e7eb',
+    borderRadius: '8px',
+    color: '#dc2626',
+    cursor: 'pointer',
+    padding: '0.45rem 0.6rem',
+    fontSize: '0.8rem',
+  },
+  addLessonBtn: {
+    background: 'none',
+    border: 'none',
+    color: '#6366f1',
+    cursor: 'pointer',
+    fontSize: '0.82rem',
+    fontWeight: 600,
+    padding: '0.25rem 0',
+  },
+  addModuleBtn: {
+    width: '100%',
+    padding: '0.65rem',
+    border: '2px dashed #c7d2fe',
+    borderRadius: '10px',
+    background: '#eef2ff',
+    color: '#4f46e5',
+    fontWeight: 700,
+    fontSize: '0.85rem',
     cursor: 'pointer',
   },
 };

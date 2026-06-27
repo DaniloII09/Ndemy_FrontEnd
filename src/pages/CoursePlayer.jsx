@@ -1,23 +1,48 @@
 // src/pages/CoursePlayer.jsx
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
-import { MOCK_COURSE_DETAIL } from '../api/mockData';
+import { getCourseDetailApi } from '../api/courses';
 
 export default function CoursePlayer() {
   const { id } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
 
-  const course = MOCK_COURSE_DETAIL[id];
-
-  const firstLesson = course?.modules?.[0]?.lessons?.[0];
-  const [activeLesson, setActiveLesson] = useState(
-    location.state?.lesson || firstLesson
-  );
-
+  const [course, setCourse] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+  const [activeLesson, setActiveLesson] = useState(location.state?.lesson ?? null);
   const [completed, setCompleted] = useState(new Set());
 
-  if (!course) {
+  useEffect(() => {
+    let cancel = false;
+    setIsLoading(true);
+    getCourseDetailApi(id)
+      .then(data => {
+        if (cancel) return;
+        setCourse(data);
+        // Selecciona la lección: la que venía por state (si existe en el curso),
+        // o la primera lección disponible.
+        const allLessons = (data.modules ?? []).flatMap(m => m.lessons ?? []);
+        const fromState = location.state?.lesson
+          ? allLessons.find(l => l.id === location.state.lesson.id)
+          : null;
+        setActiveLesson(fromState ?? allLessons[0] ?? null);
+      })
+      .catch(() => { if (!cancel) setNotFound(true); })
+      .finally(() => { if (!cancel) setIsLoading(false); });
+    return () => { cancel = true; };
+  }, [id]);
+
+  if (isLoading) {
+    return (
+      <div style={styles.center}>
+        <p>Cargando curso...</p>
+      </div>
+    );
+  }
+
+  if (notFound || !course) {
     return (
       <div style={styles.center}>
         <p>Curso no encontrado.</p>
@@ -28,7 +53,7 @@ export default function CoursePlayer() {
     );
   }
 
-  const allLessons = course.modules.flatMap(m => m.lessons);
+  const allLessons = (course.modules ?? []).flatMap(m => m.lessons ?? []);
   const currentIndex = allLessons.findIndex(l => l.id === activeLesson?.id);
   const prevLesson = currentIndex > 0 ? allLessons[currentIndex - 1] : null;
   const nextLesson = currentIndex < allLessons.length - 1 ? allLessons[currentIndex + 1] : null;
@@ -111,7 +136,9 @@ export default function CoursePlayer() {
             <h2 style={styles.lessonTitle}>{activeLesson?.title}</h2>
             <div style={styles.lessonMeta}>
               <span style={styles.badge}>{activeLesson?.contentType}</span>
-              <span style={styles.duration}>⏱ {activeLesson?.durationMinutes} min</span>
+              {activeLesson?.durationMinutes != null && (
+                <span style={styles.duration}>⏱ {activeLesson.durationMinutes} min</span>
+              )}
             </div>
           </div>
 
@@ -170,7 +197,7 @@ export default function CoursePlayer() {
                     >
                       {lesson.title}
                     </span>
-                    <span style={styles.lessonMin}>{lesson.durationMinutes}m</span>
+                    <span style={styles.lessonMin}>{lesson.durationMinutes != null ? `${lesson.durationMinutes}m` : ''}</span>
                   </div>
                 );
               })}
