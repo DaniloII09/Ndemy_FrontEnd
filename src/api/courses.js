@@ -4,6 +4,7 @@ export const getCoursesApi = async ({ search = '', category = '', page = 0, size
   const response = await axiosInstance.get('/api/courses', {
     params: { search: search || undefined, category: category || undefined, page, size },
   });
+  // El backend devuelve GeneralResponse { data: Page<CourseSummaryResponse> }
   return response.data.data;
 };
 
@@ -19,4 +20,30 @@ export const checkoutApi = async (courseId, couponCode = null) => {
     ...(couponCode ? { couponCode } : {}),
   });
   return response.data.data;
+};
+
+// ── Instructor ──────────────────────────────────────────────
+export const getMyCoursesApi = async () => {
+  const res = await axiosInstance.get('/api/instructor/me/courses');
+  return res.data.data;
+};
+
+export const createCourseApi = async (payload) => {
+  const res = await axiosInstance.post('/api/courses', payload);
+  return res.data.data;
+};
+
+export const createModuleApi = async (courseId, data) => {
+  const res = await axiosInstance.post(`/api/courses/${courseId}/modules`, data);
+  return res.data.data;
+};
+
+export const createLessonApi = async (moduleId, data) => {
+  const res = await axiosInstance.post(`/api/modules/${moduleId}/lessons`, data);
+  return res.data.data;
+};
+
+export const publishCourseApi = async (courseId) => {
+  const res = await axiosInstance.patch(`/api/courses/${courseId}/publish`);
+  return res.data.data;
 };

@@ -1,243 +1,323 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import DashboardLayout from '../layouts/DashboardLayout';
+import { useState, useEffect } from 'react';
+import { useAuth } from '../context/AuthContext';
+import { getAllUsersApi, lockUserApi, unlockUserApi, deactivateUserApi, updateUserApi } from '../api/admin';
 
-const MOCK_ADMIN_DATA = {
-  stats: {
-    totalStudents: 4820,
-    totalInstructors: 18,
-    totalCourses: 34,
-    totalRevenue: 48920.75,
-  },
-  recentUsers: [
-    { id: 'u1', name: 'Ana Martínez', email: 'ana@email.com', role: 'STUDENT', isActive: true, createdAt: '2024-05-10' },
-    { id: 'u2', name: 'Pedro López', email: 'pedro@email.com', role: 'INSTRUCTOR', isActive: true, createdAt: '2024-05-08' },
-    { id: 'u3', name: 'Laura Gómez', email: 'laura@email.com', role: 'STUDENT', isActive: false, createdAt: '2024-05-06' },
-    { id: 'u4', name: 'Carlos Ruiz', email: 'carlos@email.com', role: 'STUDENT', isActive: true, createdAt: '2024-05-05' },
-    { id: 'u5', name: 'María Pérez', email: 'maria@email.com', role: 'INSTRUCTOR', isActive: true, createdAt: '2024-05-03' },
-  ],
-  recentCourses: [
-    { id: 'uuid-course-001', title: 'Desarrollo Web con React', instructor: 'Carlos Instructor', students: 1240, isPublished: true },
-    { id: 'uuid-course-002', title: 'Java Spring Boot', instructor: 'María González', students: 980, isPublished: true },
-    { id: 'uuid-course-003', title: 'Diseño UX/UI con Figma', instructor: 'Sofía Ramírez', students: 760, isPublished: true },
-    { id: 'uuid-course-004', title: 'Python para Data Science', instructor: 'Luis Martínez', students: 1540, isPublished: false },
-  ],
+const ROLE_LABELS = { ADMIN: 'Admin', INSTRUCTOR: 'Instructor', STUDENT: 'Estudiante' };
+const ROLE_COLORS = {
+  ADMIN:      { bg: '#fef2f2', fg: '#dc2626' },
+  INSTRUCTOR: { bg: 'rgba(170,59,255,0.1)', fg: '#aa3bff' },
+  STUDENT:    { bg: '#eff6ff', fg: '#2563eb' },
 };
 
-function StatCard({ icon, label, value, color, prefix }) {
+function RoleBadge({ role }) {
+  const c = ROLE_COLORS[role] ?? ROLE_COLORS.STUDENT;
   return (
-    <div style={{ ...statStyles.card, borderTop: '3px solid ' + color }}>
-      <span style={statStyles.icon}>{icon}</span>
-      <div>
-        <div style={statStyles.value}>{prefix}{value}</div>
-        <div style={statStyles.label}>{label}</div>
+    <span style={{ background: c.bg, color: c.fg, borderRadius: 999, padding: '2px 10px', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+      {ROLE_LABELS[role] ?? role}
+    </span>
+  );
+}
+
+function StatusBadge({ isLocked, isActive }) {
+  if (!isActive)  return <span style={badge('#fef2f2','#dc2626')}>Desactivado</span>;
+  if (isLocked)   return <span style={badge('#fef9c3','#ca8a04')}>Baneado</span>;
+  return              <span style={badge('#dcfce7','#16a34a')}>Activo</span>;
+}
+const badge = (bg, fg) => ({ background: bg, color: fg, borderRadius: 999, padding: '2px 10px', fontSize: '0.7rem', fontWeight: 700 });
+
+// ── Modal confirmación ────────────────────────────────────────
+function ConfirmModal({ title, message, confirmLabel, danger, onConfirm, onClose }) {
+  return (
+    <div style={ov.overlay}>
+      <div style={ov.box}>
+        <h3 style={{ ...ov.title, color: danger ? '#dc2626' : 'var(--text-h)' }}>{title}</h3>
+        <p style={ov.msg}>{message}</p>
+        <div style={ov.row}>
+          <button onClick={onClose} style={ov.cancel}>Cancelar</button>
+          <button onClick={onConfirm} style={{ ...ov.confirm, background: danger ? '#dc2626' : 'var(--accent)' }}>{confirmLabel}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+const ov = {
+  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' },
+  box: { background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '16px', padding: '2rem', maxWidth: '380px', width: '100%', boxShadow: '0 20px 50px rgba(0,0,0,0.2)' },
+  title: { margin: '0 0 0.5rem', fontSize: '1.1rem', fontWeight: 800 },
+  msg: { color: 'var(--text)', fontSize: '0.9rem', margin: '0 0 1.5rem', lineHeight: 1.5 },
+  row: { display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' },
+  cancel: { padding: '0.55rem 1.1rem', border: '1px solid var(--border)', borderRadius: '8px', background: 'transparent', color: 'var(--text-h)', cursor: 'pointer', fontWeight: 500 },
+  confirm: { padding: '0.55rem 1.25rem', border: 'none', borderRadius: '8px', color: '#fff', cursor: 'pointer', fontWeight: 700 },
+};
+
+// ── Modal cambio de rol ───────────────────────────────────────
+function RoleModal({ user, onClose, onSaved }) {
+  const [role, setRole] = useState(user.role);
+  const [loading, setLoading] = useState(false);
+
+  const save = async () => {
+    setLoading(true);
+    try {
+      await updateUserApi(user.id, { role });
+      onSaved({ ...user, role });
+      onClose();
+    } catch { /* silent */ } finally { setLoading(false); }
+  };
+
+  return (
+    <div style={ov.overlay}>
+      <div style={ov.box}>
+        <h3 style={{ ...ov.title, color: 'var(--text-h)' }}>Cambiar rol — {user.name}</h3>
+        <select value={role} onChange={e => setRole(e.target.value)} style={{ width: '100%', padding: '0.6rem 0.75rem', border: '1px solid var(--border)', borderRadius: '8px', marginBottom: '1.5rem', fontSize: '0.9rem', background: 'var(--bg)', color: 'var(--text-h)' }}>
+          <option value="STUDENT">Estudiante</option>
+          <option value="INSTRUCTOR">Instructor</option>
+          <option value="ADMIN">Administrador</option>
+        </select>
+        <div style={ov.row}>
+          <button onClick={onClose} style={ov.cancel}>Cancelar</button>
+          <button onClick={save} disabled={loading} style={{ ...ov.confirm, background: 'var(--accent)' }}>{loading ? '...' : 'Guardar'}</button>
+        </div>
       </div>
     </div>
   );
 }
 
+// ── Dashboard ─────────────────────────────────────────────────
 export default function AdminDashboard() {
-  const navigate = useNavigate();
-  const data = MOCK_ADMIN_DATA;
-  const [activeTab, setActiveTab] = useState('users');
+  const { user: me } = useAuth();
+  const [users, setUsers]       = useState([]);
+  const [filtered, setFiltered] = useState([]);
+  const [search, setSearch]     = useState('');
+  const [filter, setFilter]     = useState('all');   // all | active | banned | inactive
+  const [loading, setLoading]   = useState(true);
+  const [confirm, setConfirm]   = useState(null);    // { type, user }
+  const [roleModal, setRoleModal] = useState(null);
+  const [toast, setToast]       = useState('');
+
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3500); };
+
+  useEffect(() => {
+    getAllUsersApi()
+      .then(data => { setUsers(data); setFiltered(data); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    let list = users;
+    if (search) list = list.filter(u => u.name.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase()));
+    if (filter === 'active')   list = list.filter(u => u.isActive && !u.isLocked);
+    if (filter === 'banned')   list = list.filter(u => u.isLocked);
+    if (filter === 'inactive') list = list.filter(u => !u.isActive);
+    setFiltered(list);
+  }, [search, filter, users]);
+
+  const updateLocal = (id, patch) => setUsers(us => us.map(u => u.id === id ? { ...u, ...patch } : u));
+
+  const handleBan = async (u) => {
+    try {
+      await lockUserApi(u.id);
+      updateLocal(u.id, { isLocked: true });
+      showToast(`🔒 ${u.name} baneado`);
+    } catch (e) { showToast('❌ ' + (e.response?.data?.message ?? 'Error')); }
+    setConfirm(null);
+  };
+
+  const handleUnban = async (u) => {
+    try {
+      await unlockUserApi(u.id);
+      updateLocal(u.id, { isLocked: false, failedLoginAttempts: 0 });
+      showToast(`✅ ${u.name} desbaneado`);
+    } catch (e) { showToast('❌ ' + (e.response?.data?.message ?? 'Error')); }
+    setConfirm(null);
+  };
+
+  const handleDeactivate = async (u) => {
+    try {
+      await deactivateUserApi(u.id);
+      updateLocal(u.id, { isActive: false });
+      showToast(`🗑 ${u.name} desactivado`);
+    } catch (e) { showToast('❌ ' + (e.response?.data?.message ?? 'Error')); }
+    setConfirm(null);
+  };
+
+  const stats = {
+    total:    users.length,
+    active:   users.filter(u => u.isActive && !u.isLocked).length,
+    banned:   users.filter(u => u.isLocked).length,
+    inactive: users.filter(u => !u.isActive).length,
+  };
 
   return (
-    <DashboardLayout>
-      <div style={styles.page}>
-        {/* Header */}
-        <div style={styles.header}>
-          <h1 style={styles.heading}>Panel de Administración</h1>
-          <span style={styles.badge}>Admin</span>
-        </div>
+    <div style={s.page}>
+      {toast && <div style={s.toast}>{toast}</div>}
 
-        {/* Stats */}
-        <div style={styles.statsGrid}>
-          <StatCard icon="👥" label="Total estudiantes" value={data.stats.totalStudents.toLocaleString()} color="#2563eb" />
-          <StatCard icon="🎓" label="Instructores" value={data.stats.totalInstructors} color="#9333ea" />
-          <StatCard icon="📚" label="Cursos totales" value={data.stats.totalCourses} color="#16a34a" />
-          <StatCard icon="💰" label="Ingresos totales" value={data.stats.totalRevenue.toLocaleString()} color="#f59e0b" prefix="$" />
-        </div>
+      {/* Modales */}
+      {confirm?.type === 'ban' && (
+        <ConfirmModal
+          title="Banear usuario"
+          message={`¿Seguro que quieres banear a ${confirm.user.name}? No podrá iniciar sesión hasta que lo desbanees.`}
+          confirmLabel="Banear"
+          danger
+          onConfirm={() => handleBan(confirm.user)}
+          onClose={() => setConfirm(null)}
+        />
+      )}
+      {confirm?.type === 'unban' && (
+        <ConfirmModal
+          title="Desbanear usuario"
+          message={`¿Deseas restaurar el acceso de ${confirm.user.name}?`}
+          confirmLabel="Desbanear"
+          onConfirm={() => handleUnban(confirm.user)}
+          onClose={() => setConfirm(null)}
+        />
+      )}
+      {confirm?.type === 'deactivate' && (
+        <ConfirmModal
+          title="Desactivar usuario"
+          message={`¿Seguro que quieres desactivar a ${confirm.user.name}? Esta acción es difícil de revertir.`}
+          confirmLabel="Desactivar"
+          danger
+          onConfirm={() => handleDeactivate(confirm.user)}
+          onClose={() => setConfirm(null)}
+        />
+      )}
+      {roleModal && (
+        <RoleModal
+          user={roleModal}
+          onClose={() => setRoleModal(null)}
+          onSaved={(updated) => { updateLocal(updated.id, { role: updated.role }); showToast(`✅ Rol actualizado`); }}
+        />
+      )}
 
-        {/* Tabs */}
-        <div style={styles.section}>
-          <div style={styles.tabs}>
-            <button
-              onClick={() => setActiveTab('users')}
-              style={{ ...styles.tab, ...(activeTab === 'users' ? styles.tabActive : {}) }}
-            >
-              👥 Usuarios recientes
-            </button>
-            <button
-              onClick={() => setActiveTab('courses')}
-              style={{ ...styles.tab, ...(activeTab === 'courses' ? styles.tabActive : {}) }}
-            >
-              📚 Cursos
-            </button>
+      {/* Hero */}
+      <section style={s.hero}>
+        <div>
+          <p style={s.heroSub}>Panel de administrador</p>
+          <h1 style={s.heroName}>Gestión de usuarios</h1>
+          <p style={s.heroDesc}>Controla el acceso y roles de todos los miembros de la plataforma.</p>
+        </div>
+        <span style={{ fontSize: '3.5rem' }}>🛡️</span>
+      </section>
+
+      {/* Stats */}
+      <div style={s.statsRow}>
+        {[
+          { label: 'Total usuarios', value: stats.total, icon: '👥', color: '' },
+          { label: 'Activos', value: stats.active, icon: '✅', color: '#16a34a' },
+          { label: 'Baneados', value: stats.banned, icon: '🔒', color: '#ca8a04' },
+          { label: 'Desactivados', value: stats.inactive, icon: '❌', color: '#dc2626' },
+        ].map(st => (
+          <div key={st.label} style={s.statCard}>
+            <span style={s.statIcon}>{st.icon}</span>
+            <span style={{ ...s.statValue, color: st.color || 'var(--text-h)' }}>{st.value}</span>
+            <span style={s.statLabel}>{st.label}</span>
           </div>
+        ))}
+      </div>
 
-          {/* Tabla de usuarios */}
-          {activeTab === 'users' && (
-            <div>
-              <table style={styles.table}>
-                <thead>
-                  <tr>
-                    <th style={styles.th}>Nombre</th>
-                    <th style={styles.th}>Email</th>
-                    <th style={styles.th}>Rol</th>
-                    <th style={styles.th}>Estado</th>
-                    <th style={styles.th}>Registro</th>
-                    <th style={styles.th}>Acciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.recentUsers.map(user => (
-                    <tr key={user.id} style={styles.tr}>
-                      <td style={styles.td}>
-                        <div style={styles.userCell}>
-                          <div style={styles.avatar}>
-                            {user.name.charAt(0)}
-                          </div>
-                          {user.name}
-                        </div>
-                      </td>
-                      <td style={{ ...styles.td, color: '#64748b' }}>{user.email}</td>
-                      <td style={styles.td}>
-                        <span style={{
-                          ...styles.roleBadge,
-                          background: user.role === 'ADMIN' ? '#fef3c7' : user.role === 'INSTRUCTOR' ? '#ede9fe' : '#dbeafe',
-                          color: user.role === 'ADMIN' ? '#92400e' : user.role === 'INSTRUCTOR' ? '#6d28d9' : '#1d4ed8',
-                        }}>
-                          {user.role}
-                        </span>
-                      </td>
-                      <td style={styles.td}>
-                        <span style={{
-                          ...styles.statusBadge,
-                          background: user.isActive ? '#dcfce7' : '#fee2e2',
-                          color: user.isActive ? '#16a34a' : '#dc2626',
-                        }}>
-                          {user.isActive ? 'Activo' : 'Inactivo'}
-                        </span>
-                      </td>
-                      <td style={{ ...styles.td, color: '#94a3b8', fontSize: '0.8rem' }}>
-                        {new Date(user.createdAt).toLocaleDateString('es-ES')}
-                      </td>
-                      <td style={styles.td}>
-                        <button style={styles.actionBtn}>
-                          {user.isActive ? 'Desactivar' : 'Activar'}
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div style={styles.tableFooter}>
-                <button
-                  onClick={() => navigate('/admin/users')}
-                  style={styles.seeAllBtn}
-                >
-                  Ver todos los usuarios →
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Tabla de cursos */}
-          {activeTab === 'courses' && (
-            <div>
-              <table style={styles.table}>
-                <thead>
-                  <tr>
-                    <th style={styles.th}>Curso</th>
-                    <th style={styles.th}>Instructor</th>
-                    <th style={styles.th}>Estudiantes</th>
-                    <th style={styles.th}>Estado</th>
-                    <th style={styles.th}>Acciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.recentCourses.map(course => (
-                    <tr key={course.id} style={styles.tr}>
-                      <td style={styles.td}>
-                        <span style={styles.courseTitle}>{course.title}</span>
-                      </td>
-                      <td style={{ ...styles.td, color: '#64748b' }}>{course.instructor}</td>
-                      <td style={styles.td}>
-                        <span style={styles.studentsCount}>
-                          👥 {course.students.toLocaleString()}
-                        </span>
-                      </td>
-                      <td style={styles.td}>
-                        <span style={{
-                          ...styles.statusBadge,
-                          background: course.isPublished ? '#dcfce7' : '#fef9c3',
-                          color: course.isPublished ? '#16a34a' : '#a16207',
-                        }}>
-                          {course.isPublished ? 'Publicado' : 'Borrador'}
-                        </span>
-                      </td>
-                      <td style={styles.td}>
-                        <div style={styles.actionsRow}>
-                          <button
-                            onClick={() => navigate('/courses/' + course.id)}
-                            style={styles.actionBtn}
-                          >
-                            Ver
-                          </button>
-                          <button style={{ ...styles.actionBtn, color: '#dc2626', borderColor: '#fca5a5' }}>
-                            {course.isPublished ? 'Despublicar' : 'Publicar'}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div style={styles.tableFooter}>
-                <button
-                  onClick={() => navigate('/admin/courses')}
-                  style={styles.seeAllBtn}
-                >
-                  Ver todos los cursos →
-                </button>
-              </div>
-            </div>
-          )}
+      {/* Filtros */}
+      <div style={s.toolbar}>
+        <input
+          style={s.search}
+          placeholder="Buscar por nombre o email..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
+        <div style={s.filterRow}>
+          {['all', 'active', 'banned', 'inactive'].map(f => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              style={{ ...s.filterBtn, ...(filter === f ? s.filterBtnActive : {}) }}
+            >
+              {{ all: 'Todos', active: 'Activos', banned: 'Baneados', inactive: 'Inactivos' }[f]}
+            </button>
+          ))}
         </div>
       </div>
-    </DashboardLayout>
+
+      {/* Tabla */}
+      {loading ? (
+        <p style={{ color: 'var(--text)' }}>Cargando usuarios...</p>
+      ) : (
+        <div style={s.table}>
+          <div style={s.tableHead}>
+            <span style={{ flex: 3 }}>Usuario</span>
+            <span style={{ flex: 1 }}>Rol</span>
+            <span style={{ flex: 1 }}>Estado</span>
+            <span style={{ flex: 2 }}>Acciones</span>
+          </div>
+          {filtered.length === 0 && <p style={{ padding: '1.5rem', color: 'var(--text)', fontSize: '0.875rem' }}>Sin resultados.</p>}
+          {filtered.map(u => (
+            <div key={u.id} style={{ ...s.tableRow, ...(u.isLocked ? s.rowBanned : {}) }}>
+              {/* Info */}
+              <div style={{ flex: 3 }}>
+                <div style={s.userInfo}>
+                  <div style={s.avatar}>{u.name.charAt(0).toUpperCase()}</div>
+                  <div>
+                    <p style={s.userName}>
+                      {u.name}
+                      {u.id === me?.id && <span style={s.meTag}> (tú)</span>}
+                    </p>
+                    <p style={s.userEmail}>{u.email}</p>
+                  </div>
+                </div>
+              </div>
+              <span style={{ flex: 1 }}><RoleBadge role={u.role} /></span>
+              <span style={{ flex: 1 }}><StatusBadge isLocked={u.isLocked} isActive={u.isActive} /></span>
+
+              {/* Acciones */}
+              <div style={{ flex: 2, display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                {u.id !== me?.id && u.isActive && (
+                  <>
+                    <button onClick={() => setRoleModal(u)} style={s.actionBtn}>Rol</button>
+                    {u.isLocked
+                      ? <button onClick={() => setConfirm({ type: 'unban', user: u })} style={{ ...s.actionBtn, ...s.btnGreen }}>Desbanear</button>
+                      : <button onClick={() => setConfirm({ type: 'ban', user: u })} style={{ ...s.actionBtn, ...s.btnOrange }}>Banear</button>
+                    }
+                    <button onClick={() => setConfirm({ type: 'deactivate', user: u })} style={{ ...s.actionBtn, ...s.btnRed }}>Desactivar</button>
+                  </>
+                )}
+                {u.id === me?.id && <span style={{ fontSize: '0.78rem', color: 'var(--text)' }}>Tu cuenta</span>}
+                {!u.isActive && <span style={{ fontSize: '0.78rem', color: '#dc2626' }}>Desactivado</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
-const styles = {
-  page: { maxWidth: '960px' },
-  header: { display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem' },
-  heading: { fontSize: '1.6rem', fontWeight: 700, margin: 0, color: '#0f172a' },
-  badge: { padding: '0.25rem 0.75rem', background: '#fef3c7', color: '#92400e', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 600 },
-  statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '1.5rem' },
-  section: { background: '#fff', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' },
-  tabs: { display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.75rem' },
-  tab: { padding: '0.5rem 1rem', border: 'none', background: 'none', cursor: 'pointer', fontSize: '0.875rem', color: '#64748b', borderRadius: '8px' },
-  tabActive: { background: '#eff6ff', color: '#2563eb', fontWeight: 600 },
-  table: { width: '100%', borderCollapse: 'collapse' },
-  th: { textAlign: 'left', padding: '0.6rem 0.75rem', fontSize: '0.75rem', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em', borderBottom: '1px solid #f1f5f9' },
-  tr: { borderBottom: '1px solid #f8fafc' },
-  td: { padding: '0.75rem', fontSize: '0.875rem', color: '#0f172a', verticalAlign: 'middle' },
-  userCell: { display: 'flex', alignItems: 'center', gap: '0.6rem' },
-  avatar: { width: '28px', height: '28px', borderRadius: '50%', background: '#e0e7ff', color: '#4338ca', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 700, flexShrink: 0 },
-  roleBadge: { fontSize: '0.7rem', padding: '2px 8px', borderRadius: '20px', fontWeight: 500 },
-  statusBadge: { fontSize: '0.75rem', padding: '2px 8px', borderRadius: '20px', fontWeight: 500 },
-  actionBtn: { padding: '0.3rem 0.75rem', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', cursor: 'pointer', fontSize: '0.775rem', color: '#475569' },
-  actionsRow: { display: 'flex', gap: '0.4rem' },
-  courseTitle: { fontWeight: 500 },
-  studentsCount: { fontSize: '0.8rem', color: '#64748b' },
-  tableFooter: { marginTop: '1rem', display: 'flex', justifyContent: 'flex-end' },
-  seeAllBtn: { background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', fontSize: '0.875rem' },
-};
-
-const statStyles = {
-  card: { background: '#fff', borderRadius: '12px', padding: '1.25rem', display: 'flex', alignItems: 'center', gap: '1rem', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' },
-  icon: { fontSize: '1.75rem' },
-  value: { fontSize: '1.4rem', fontWeight: 700, color: '#0f172a', lineHeight: 1 },
-  label: { fontSize: '0.8rem', color: '#64748b', marginTop: '0.2rem' },
+const s = {
+  page: { maxWidth: '1100px', margin: '0 auto', padding: '2rem 1.5rem 4rem', fontFamily: 'var(--sans)', textAlign: 'left' },
+  toast: { position: 'fixed', bottom: '1.5rem', right: '1.5rem', background: '#1a1a1a', color: '#fff', padding: '0.75rem 1.25rem', borderRadius: '10px', fontSize: '0.875rem', zIndex: 999, boxShadow: '0 8px 24px rgba(0,0,0,0.2)' },
+  hero: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(135deg, rgba(220,38,38,0.08) 0%, transparent 70%)', border: '1px solid rgba(220,38,38,0.2)', borderRadius: '20px', padding: '2rem 2.5rem', marginBottom: '2rem' },
+  heroSub: { fontSize: '0.78rem', color: '#dc2626', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 0.2rem' },
+  heroName: { fontSize: '1.8rem', fontWeight: 800, color: 'var(--text-h)', margin: '0 0 0.3rem', letterSpacing: '-0.5px' },
+  heroDesc: { fontSize: '0.9rem', color: 'var(--text)', margin: 0 },
+  statsRow: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '1.75rem' },
+  statCard: { border: '1px solid var(--border)', borderRadius: '14px', padding: '1.1rem', display: 'flex', flexDirection: 'column', gap: '0.25rem', background: 'var(--bg)' },
+  statIcon: { fontSize: '1.3rem' },
+  statValue: { fontSize: '1.7rem', fontWeight: 800, letterSpacing: '-1px', lineHeight: 1 },
+  statLabel: { fontSize: '0.75rem', color: 'var(--text)' },
+  toolbar: { display: 'flex', gap: '1rem', marginBottom: '1.25rem', flexWrap: 'wrap', alignItems: 'center' },
+  search: { flex: 1, minWidth: '200px', padding: '0.6rem 0.85rem', border: '1px solid var(--border)', borderRadius: '8px', fontSize: '0.875rem', background: 'var(--bg)', color: 'var(--text-h)' },
+  filterRow: { display: 'flex', gap: '0.4rem' },
+  filterBtn: { padding: '0.45rem 0.85rem', border: '1px solid var(--border)', borderRadius: '8px', background: 'transparent', color: 'var(--text)', fontSize: '0.82rem', cursor: 'pointer', fontWeight: 500 },
+  filterBtnActive: { background: 'var(--accent)', color: '#fff', borderColor: 'var(--accent)' },
+  table: { border: '1px solid var(--border)', borderRadius: '14px', overflow: 'hidden' },
+  tableHead: { display: 'flex', padding: '0.75rem 1.25rem', background: 'var(--code-bg)', borderBottom: '1px solid var(--border)', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text)', textTransform: 'uppercase', letterSpacing: '0.05em' },
+  tableRow: { display: 'flex', alignItems: 'center', padding: '0.9rem 1.25rem', borderBottom: '1px solid var(--border)', gap: '0.75rem' },
+  rowBanned: { background: 'rgba(234,179,8,0.04)' },
+  userInfo: { display: 'flex', alignItems: 'center', gap: '0.75rem' },
+  avatar: { width: '34px', height: '34px', borderRadius: '50%', background: 'var(--accent-bg)', color: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.9rem', flexShrink: 0, border: '1px solid var(--accent-border)' },
+  userName: { fontWeight: 600, color: 'var(--text-h)', fontSize: '0.875rem', margin: '0 0 0.1rem' },
+  userEmail: { fontSize: '0.75rem', color: 'var(--text)', margin: 0 },
+  meTag: { fontWeight: 400, color: 'var(--accent)', fontSize: '0.75rem' },
+  actionBtn: { padding: '0.32rem 0.65rem', border: '1px solid var(--border)', borderRadius: '6px', background: 'transparent', color: 'var(--text-h)', fontSize: '0.75rem', cursor: 'pointer', fontWeight: 600 },
+  btnGreen:  { background: '#dcfce7', color: '#16a34a', border: '1px solid #bbf7d0' },
+  btnOrange: { background: '#fef9c3', color: '#854d0e', border: '1px solid #fde68a' },
+  btnRed:    { background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca' },
 };
