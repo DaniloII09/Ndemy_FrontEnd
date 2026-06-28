@@ -15,6 +15,7 @@ export default function ProfilePage() {
 
   // Cambio de contraseña
   const [pwd, setPwd] = useState({ currentPassword: '', newPassword: '', confirm: '' });
+  const [showPwd, setShowPwd] = useState({ current: false, next: false, confirm: false });
   const [pwdSaving, setPwdSaving] = useState(false);
   const [pwdMsg, setPwdMsg] = useState('');
   const [pwdErr, setPwdErr] = useState('');
@@ -111,18 +112,42 @@ export default function ProfilePage() {
         <h2 style={s.cardTitle}>Cambiar contraseña</h2>
         <div style={s.field}>
           <label style={s.label}>Contraseña actual</label>
-          <input style={s.input} type="password" value={pwd.currentPassword}
-            onChange={e => setPwd(p => ({ ...p, currentPassword: e.target.value }))} />
+          <div style={s.pwdWrap}>
+            <input style={s.pwdInput} type={showPwd.current ? 'text' : 'password'} autoComplete="current-password"
+              value={pwd.currentPassword}
+              onChange={e => setPwd(p => ({ ...p, currentPassword: e.target.value }))} />
+            <button type="button" style={s.eyeBtn} onClick={() => setShowPwd(v => ({ ...v, current: !v.current }))}>
+              {showPwd.current ? '🙈' : '👁️'}
+            </button>
+          </div>
         </div>
         <div style={s.field}>
           <label style={s.label}>Nueva contraseña</label>
-          <input style={s.input} type="password" value={pwd.newPassword}
-            onChange={e => setPwd(p => ({ ...p, newPassword: e.target.value }))} />
+          <div style={s.pwdWrap}>
+            <input style={s.pwdInput} type={showPwd.next ? 'text' : 'password'} autoComplete="new-password"
+              value={pwd.newPassword}
+              onChange={e => setPwd(p => ({ ...p, newPassword: e.target.value }))} />
+            <button type="button" style={s.eyeBtn} onClick={() => setShowPwd(v => ({ ...v, next: !v.next }))}>
+              {showPwd.next ? '🙈' : '👁️'}
+            </button>
+          </div>
         </div>
         <div style={s.field}>
           <label style={s.label}>Confirmar nueva contraseña</label>
-          <input style={s.input} type="password" value={pwd.confirm}
-            onChange={e => setPwd(p => ({ ...p, confirm: e.target.value }))} />
+          <div style={s.pwdWrap}>
+            <input style={s.pwdInput} type={showPwd.confirm ? 'text' : 'password'} autoComplete="new-password"
+              value={pwd.confirm}
+              onChange={e => setPwd(p => ({ ...p, confirm: e.target.value }))} />
+            <button type="button" style={s.eyeBtn} onClick={() => setShowPwd(v => ({ ...v, confirm: !v.confirm }))}>
+              {showPwd.confirm ? '🙈' : '👁️'}
+            </button>
+          </div>
+          {pwd.confirm.length > 0 && pwd.newPassword !== pwd.confirm && (
+            <p style={s.hintErr}>Las contraseñas no coinciden.</p>
+          )}
+          {pwd.confirm.length > 0 && pwd.newPassword === pwd.confirm && (
+            <p style={s.hintOk}>Las contraseñas coinciden.</p>
+          )}
         </div>
 
         {pwdErr && <p style={s.errMsg}>{pwdErr}</p>}
@@ -151,6 +176,11 @@ const s = {
   field: { marginBottom: '1rem' },
   label: { display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-h, #111827)', marginBottom: '0.4rem' },
   input: { width: '100%', padding: '0.65rem 0.85rem', border: '1px solid var(--border, #e5e7eb)', borderRadius: '8px', fontSize: '0.9rem', background: 'var(--bg, #fff)', color: 'var(--text-h, #111827)', boxSizing: 'border-box' },
+  pwdWrap: { position: 'relative', display: 'flex', alignItems: 'center' },
+  pwdInput: { width: '100%', padding: '0.65rem 2.6rem 0.65rem 0.85rem', border: '1px solid var(--border, #e5e7eb)', borderRadius: '8px', fontSize: '0.9rem', background: 'var(--bg, #fff)', color: 'var(--text-h, #111827)', boxSizing: 'border-box' },
+  eyeBtn: { position: 'absolute', right: '0.5rem', background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: '0.25rem', lineHeight: 1 },
+  hintErr: { fontSize: '0.78rem', color: '#dc2626', margin: '0.4rem 0 0' },
+  hintOk: { fontSize: '0.78rem', color: '#16a34a', margin: '0.4rem 0 0' },
   errMsg: { fontSize: '0.85rem', color: '#dc2626', margin: '0 0 0.75rem' },
   okMsg: { fontSize: '0.85rem', color: '#16a34a', fontWeight: 500, margin: '0 0 0.75rem' },
   saveBtn: { padding: '0.7rem 1.5rem', background: 'var(--accent, #aa3bff)', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 700, cursor: 'pointer', fontSize: '0.9rem' },

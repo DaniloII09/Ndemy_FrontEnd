@@ -42,6 +42,7 @@ function CreateCourseModal({ onClose, onCreated }) {
   // Paso 1: crear el curso
   const handleCreateCourse = async () => {
     if (!form.title || !form.price) { setError('Título y precio son obligatorios.'); return; }
+    if (!form.category) { setError('Selecciona una categoría para que el curso aparezca en el catálogo.'); return; }
     setError(''); setLoading(true);
     try {
       const created = await createCourseApi({
@@ -176,8 +177,14 @@ function CreateCourseModal({ onClose, onCreated }) {
                 <input style={m.input} type="number" min="0" step="0.01" value={form.price} onChange={e => set('price', e.target.value)} placeholder="29.99" />
               </div>
               <div>
-                <label style={m.label}>Categoría</label>
-                <input style={m.input} value={form.category} onChange={e => set('category', e.target.value)} placeholder="Programación" />
+                <label style={m.label}>Categoría <span style={m.req}>*</span></label>
+                <select style={m.input} value={form.category} onChange={e => set('category', e.target.value)}>
+                  <option value="">Selecciona una categoría</option>
+                  <option value="Programación">Programación</option>
+                  <option value="Diseño">Diseño</option>
+                  <option value="Data Science">Data Science</option>
+                  <option value="Marketing">Marketing</option>
+                </select>
               </div>
               <div>
                 <label style={m.label}>Duración (horas)</label>

@@ -80,6 +80,12 @@ export default function CourseDetailPage() {
       navigate('/login');
       return;
     }
+    if (isOwner) {
+      // El instructor dueño no compra su curso; lo previsualiza
+      const firstLesson = course.modules?.[0]?.lessons?.[0];
+      if (firstLesson) handleLessonClick(firstLesson);
+      return;
+    }
     if (isEnrolled) {
       // Ir a la primera lección
       const firstLesson = course.modules[0]?.lessons[0];
@@ -91,6 +97,7 @@ export default function CourseDetailPage() {
 
   const getButtonLabel = () => {
     if (!isAuthenticated) return 'Iniciar sesión para comprar';
+    if (isOwner) return 'Previsualizar curso';
     if (isEnrolled) return 'Continuar curso';
     return `Comprar — $${course?.price}`;
   };
@@ -103,6 +110,7 @@ export default function CourseDetailPage() {
   if (!course) return null;
 
   const isEnrolled = isAuthenticated && course.isEnrolled === true;
+  const isOwner = isAuthenticated && !!user && course.instructorId === user.id;
 
   return (
     <div style={styles.page}>
@@ -145,7 +153,7 @@ export default function CourseDetailPage() {
             <img src={course.thumbnailUrl} alt={course.title} style={styles.thumbnail} />
 
             <div style={styles.sideBody}>
-              {!isEnrolled && (
+              {!isEnrolled && !isOwner && (
                 <div style={styles.priceRow}>
                   <span style={styles.price}>${course.price}</span>
                 </div>
@@ -155,14 +163,27 @@ export default function CourseDetailPage() {
                 {getButtonLabel()}
               </button>
 
-              {isEnrolled && (
+              {isEnrolled && !isOwner && (
                 <p style={styles.enrolledBadge}>✅ Ya estás inscrito en este curso</p>
+              )}
+
+              {isOwner && (
+                <div style={styles.ownerBox}>
+                  <p style={styles.ownerTitle}>👨‍🏫 Eres el instructor de este curso</p>
+                  <p style={styles.ownerLine}>
+                    Estado: {course.isPublished ? '🟢 Publicado' : '🟡 Borrador'}
+                  </p>
+                  <p style={styles.ownerLine}>
+                    Examen final: {course.hasExam ? '✅ Configurado' : '❌ Sin examen (requerido para publicar)'}
+                  </p>
+                </div>
               )}
 
               <ul style={styles.featureList}>
                 <li>📱 Acceso desde cualquier dispositivo</li>
                 <li>⏱ {course.durationHours} horas de contenido</li>
                 <li>📋 {getTotalLessons()} lecciones</li>
+                {course.hasExam && <li>🎓 Examen final incluido</li>}
                 <li>🏆 Certificado al completar</li>
               </ul>
             </div>
@@ -193,6 +214,9 @@ const styles = {
   price: { fontSize: '1.75rem', fontWeight: 700, color: '#1a1a1a' },
   actionButton: { width: '100%', padding: '0.85rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '1rem', fontWeight: 600, cursor: 'pointer', marginBottom: '1rem' },
   enrolledBadge: { fontSize: '0.85rem', color: '#16a34a', textAlign: 'center', marginBottom: '1rem', fontWeight: 500 },
+  ownerBox: { background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '0.75rem 0.9rem', marginBottom: '1rem' },
+  ownerTitle: { fontSize: '0.85rem', fontWeight: 700, color: '#1a1a1a', margin: '0 0 0.4rem' },
+  ownerLine: { fontSize: '0.8rem', color: '#555', margin: '0.2rem 0' },
   featureList: { listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '0.6rem', fontSize: '0.875rem', color: '#555' },
 };
 
