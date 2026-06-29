@@ -23,3 +23,9 @@ export const completeLessonApi = async (lessonId) => {
   const res = await axiosInstance.post(`/api/lessons/${lessonId}/complete`);
   return res.data.data;
 };
+
+// Reembolso / desinscripción: requiere el ID del pago (no el del curso)
+export const refundApi = async (paymentId) => {
+  const res = await axiosInstance.post(`/api/payment/${paymentId}/refund`);
+  return res.data.data;
+};

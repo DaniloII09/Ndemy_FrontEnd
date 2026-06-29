@@ -4,11 +4,15 @@ import { useNavigate } from 'react-router-dom';
 import {
   getMyCoursesApi,
   createCourseApi,
+  updateCourseApi,
+  getCourseDetailApi,
   createModuleApi,
   createLessonApi,
   publishCourseApi,
 } from '../api/courses';
 import { createExamApi, createQuestionApi, createOptionApi } from '../api/exams';
+import { getAllCouponsApi, createCouponApi, updateCouponApi, deactivateCouponApi } from '../api/coupons';
+import { getInstructorRevenueReportApi } from '../api/reports';
 
 // ── Utilidades ────────────────────────────────────────────────
 const CONTENT_TYPES = ['VIDEO', 'PDF', 'QUIZ'];
@@ -300,6 +304,537 @@ function CreateCourseModal({ onClose, onCreated }) {
   );
 }
 
+function EditCourseModal({ courseId, onClose, onUpdated }) {
+  const [tab, setTab] = useState('datos'); // datos | contenido | examen
+  const [course, setCourse] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [ok, setOk] = useState('');
+
+  const [form, setForm] = useState({ title: '', description: '', price: '', category: '', durationHours: '', thumbnailUrl: '' });
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const [newModules, setNewModules] = useState([]);
+  const [exam, setExam] = useState({ passingScore: 70, timeLimitMinutes: '', questions: [] });
+
+  useEffect(() => {
+    let active = true;
+    getCourseDetailApi(courseId)
+      .then(data => {
+        if (!active) return;
+        setCourse(data);
+        setForm({
+          title: data.title ?? '',
+          description: data.description ?? '',
+          price: data.price ?? '',
+          category: data.category ?? '',
+          durationHours: data.durationHours ?? '',
+          thumbnailUrl: data.thumbnailUrl ?? '',
+        });
+      })
+      .catch(() => setError('No se pudo cargar el curso.'))
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [courseId]);
+
+  const handleSaveData = async () => {
+    setError(''); setOk('');
+    if (!form.title || form.price === '') { setError('Título y precio son obligatorios.'); return; }
+    if (!form.category) { setError('Selecciona una categoría.'); return; }
+    setSaving(true);
+    try {
+      const updated = await updateCourseApi(courseId, {
+        title: form.title,
+        description: form.description,
+        price: parseFloat(form.price),
+        category: form.category,
+        durationHours: form.durationHours ? parseInt(form.durationHours) : null,
+        thumbnailUrl: form.thumbnailUrl || null,
+      });
+      setCourse(c => ({ ...c, ...updated }));
+      setOk('✅ Datos actualizados.');
+      onUpdated?.({ courseId, title: form.title, category: form.category, price: parseFloat(form.price) });
+    } catch (e) {
+      setError(e.response?.data?.message ?? 'No se pudo actualizar.');
+    } finally { setSaving(false); }
+  };
+
+  const addNewModule = () => setNewModules(ms => [...ms, { title: '', lessons: [{ title: '', contentType: 'VIDEO', contentUrl: '' }] }]);
+  const setNMTitle = (i, v) => setNewModules(ms => ms.map((x, j) => j === i ? { ...x, title: v } : x));
+  const addNMLesson = (mi) => setNewModules(ms => ms.map((x, j) => j === mi ? { ...x, lessons: [...x.lessons, { title: '', contentType: 'VIDEO', contentUrl: '' }] } : x));
+  const setNMLesson = (mi, li, k, v) => setNewModules(ms => ms.map((x, j) => j !== mi ? x : { ...x, lessons: x.lessons.map((l, k2) => k2 !== li ? l : { ...l, [k]: v }) }));
+  const removeNMLesson = (mi, li) => setNewModules(ms => ms.map((x, j) => j !== mi ? x : { ...x, lessons: x.lessons.filter((_, k) => k !== li) }));
+  const removeNM = (mi) => setNewModules(ms => ms.filter((_, j) => j !== mi));
+
+  const handleAddContent = async () => {
+    setError(''); setOk('');
+    const valid = newModules.filter(mm => mm.title.trim());
+    if (valid.length === 0) { setError('Agrega al menos un módulo con título.'); return; }
+    setSaving(true);
+    try {
+      for (const mod of valid) {
+        const createdMod = await createModuleApi(courseId, { title: mod.title });
+        for (const les of mod.lessons) {
+          if (!les.title.trim()) continue;
+          await createLessonApi(createdMod.id, { title: les.title, contentType: les.contentType, contentUrl: les.contentUrl || null });
+        }
+      }
+      const fresh = await getCourseDetailApi(courseId);
+      setCourse(fresh);
+      setNewModules([]);
+      setOk('✅ Contenido agregado.');
+    } catch (e) {
+      setError(e.response?.data?.message ?? 'No se pudo agregar el contenido.');
+    } finally { setSaving(false); }
+  };
+
+  const addQuestion = () => setExam(e => ({ ...e, questions: [...e.questions, { text: '', options: [{ text: '', isCorrect: true }, { text: '', isCorrect: false }] }] }));
+  const removeQuestion = (qi) => setExam(e => ({ ...e, questions: e.questions.filter((_, i) => i !== qi) }));
+  const setQuestionText = (qi, v) => setExam(e => ({ ...e, questions: e.questions.map((q, i) => i === qi ? { ...q, text: v } : q) }));
+  const addOption = (qi) => setExam(e => ({ ...e, questions: e.questions.map((q, i) => i !== qi ? q : { ...q, options: [...q.options, { text: '', isCorrect: false }] }) }));
+  const removeOption = (qi, oi) => setExam(e => ({ ...e, questions: e.questions.map((q, i) => i !== qi ? q : { ...q, options: q.options.filter((_, k) => k !== oi) }) }));
+  const setOptionText = (qi, oi, v) => setExam(e => ({ ...e, questions: e.questions.map((q, i) => i !== qi ? q : { ...q, options: q.options.map((o, k) => k === oi ? { ...o, text: v } : o) }) }));
+  const setCorrect = (qi, oi) => setExam(e => ({ ...e, questions: e.questions.map((q, i) => i !== qi ? q : { ...q, options: q.options.map((o, k) => ({ ...o, isCorrect: k === oi })) }) }));
+
+  const handleCreateExam = async () => {
+    setError(''); setOk('');
+    const ps = parseInt(exam.passingScore);
+    if (isNaN(ps) || ps < 60 || ps > 100) { setError('La nota mínima debe estar entre 60 y 100.'); return; }
+    if (exam.questions.length === 0) { setError('Agrega al menos una pregunta.'); return; }
+    for (let i = 0; i < exam.questions.length; i++) {
+      const q = exam.questions[i];
+      if (!q.text.trim()) { setError(`La pregunta ${i + 1} no tiene enunciado.`); return; }
+      const filled = q.options.filter(o => o.text.trim());
+      if (filled.length < 2) { setError(`La pregunta ${i + 1} necesita al menos 2 opciones.`); return; }
+      if (q.options.filter(o => o.isCorrect && o.text.trim()).length !== 1) { setError(`Marca una opción correcta en la pregunta ${i + 1}.`); return; }
+    }
+    setSaving(true);
+    try {
+      const createdExam = await createExamApi(courseId, {
+        passingScore: ps,
+        timeLimitMinutes: exam.timeLimitMinutes ? parseInt(exam.timeLimitMinutes) : null,
+      });
+      for (let qi = 0; qi < exam.questions.length; qi++) {
+        const q = exam.questions[qi];
+        const createdQ = await createQuestionApi(createdExam.id, { text: q.text, orderIndex: qi });
+        for (const opt of q.options) {
+          if (!opt.text.trim()) continue;
+          await createOptionApi(createdQ.id, { text: opt.text, isCorrect: !!opt.isCorrect });
+        }
+      }
+      setCourse(c => ({ ...c, hasExam: true }));
+      setExam({ passingScore: 70, timeLimitMinutes: '', questions: [] });
+      setOk('✅ Examen creado. Ya puedes publicar el curso.');
+    } catch (e) {
+      setError(e.response?.data?.message ?? 'No se pudo crear el examen.');
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div style={m.overlay} onClick={onClose}>
+      <div style={m.modal} onClick={e => e.stopPropagation()}>
+        <div style={m.header}>
+          <div>
+            <p style={m.stepLabel}>Editar curso</p>
+            <h2 style={m.title}>{loading ? 'Cargando...' : course?.title}</h2>
+          </div>
+          <button onClick={onClose} style={m.closeBtn}>✕</button>
+        </div>
+
+        <div style={m.tabs}>
+          {[['datos', 'Datos'], ['contenido', 'Contenido'], ['examen', 'Examen']].map(([k, label]) => (
+            <button key={k} onClick={() => { setTab(k); setError(''); setOk(''); }}
+              style={{ ...m.tab, ...(tab === k ? m.tabActive : {}) }}>
+              {label}{k === 'examen' && course?.hasExam ? ' ✅' : ''}
+            </button>
+          ))}
+        </div>
+
+        <div style={m.body}>
+          {error && <p style={m.error}>{error}</p>}
+          {ok && <p style={{ ...m.hint, color: '#16a34a', fontWeight: 600 }}>{ok}</p>}
+
+          {loading ? <p style={m.hint}>Cargando datos del curso...</p> : (
+            <>
+              {tab === 'datos' && (
+                <div style={m.grid2}>
+                  <div style={{ gridColumn: '1/-1' }}>
+                    <label style={m.label}>Título <span style={m.req}>*</span></label>
+                    <input style={m.input} value={form.title} onChange={e => set('title', e.target.value)} />
+                  </div>
+                  <div style={{ gridColumn: '1/-1' }}>
+                    <label style={m.label}>Descripción</label>
+                    <textarea style={{ ...m.input, height: 80, resize: 'vertical' }} value={form.description} onChange={e => set('description', e.target.value)} />
+                  </div>
+                  <div>
+                    <label style={m.label}>Precio (USD) <span style={m.req}>*</span></label>
+                    <input style={m.input} type="number" min="0" step="0.01" value={form.price} onChange={e => set('price', e.target.value)} />
+                  </div>
+                  <div>
+                    <label style={m.label}>Categoría <span style={m.req}>*</span></label>
+                    <select style={m.input} value={form.category} onChange={e => set('category', e.target.value)}>
+                      <option value="">Selecciona una categoría</option>
+                      <option value="Programación">Programación</option>
+                      <option value="Diseño">Diseño</option>
+                      <option value="Data Science">Data Science</option>
+                      <option value="Marketing">Marketing</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={m.label}>Duración (horas)</label>
+                    <input style={m.input} type="number" min="1" value={form.durationHours} onChange={e => set('durationHours', e.target.value)} />
+                  </div>
+                  <div>
+                    <label style={m.label}>URL de miniatura</label>
+                    <input style={m.input} value={form.thumbnailUrl} onChange={e => set('thumbnailUrl', e.target.value)} />
+                  </div>
+                </div>
+              )}
+
+              {tab === 'contenido' && (
+                <div>
+                  <p style={m.hint}>Módulos actuales del curso:</p>
+                  {(course?.modules ?? []).length === 0 ? (
+                    <p style={{ ...m.hint, color: '#9ca3af' }}>Este curso aún no tiene módulos.</p>
+                  ) : (
+                    course.modules.map((mod, i) => (
+                      <div key={mod.id} style={m.moduleCard}>
+                        <span style={m.moduleNum}>{i + 1}. {mod.title}</span>
+                        <p style={{ ...m.hint, margin: '0.35rem 0 0' }}>{(mod.lessons ?? []).length} lección(es)</p>
+                      </div>
+                    ))
+                  )}
+
+                  <hr style={{ border: 'none', borderTop: '1px solid #eee', margin: '1rem 0' }} />
+                  <p style={m.hint}>Agregar nuevos módulos:</p>
+                  {newModules.map((mod, mi) => (
+                    <div key={mi} style={m.moduleCard}>
+                      <div style={m.moduleHeader}>
+                        <span style={m.moduleNum}>Nuevo módulo</span>
+                        <input style={{ ...m.input, flex: 1, marginBottom: 0 }} value={mod.title} onChange={e => setNMTitle(mi, e.target.value)} placeholder="Título del módulo" />
+                        <button onClick={() => removeNM(mi)} style={m.removeBtn}>✕</button>
+                      </div>
+                      {mod.lessons.map((les, li) => (
+                        <div key={li} style={m.lessonRow}>
+                          <input style={{ ...m.input, flex: 2, marginBottom: 0 }} value={les.title} onChange={e => setNMLesson(mi, li, 'title', e.target.value)} placeholder="Título de la lección" />
+                          <select style={{ ...m.input, marginBottom: 0 }} value={les.contentType} onChange={e => setNMLesson(mi, li, 'contentType', e.target.value)}>
+                            <option value="VIDEO">VIDEO</option>
+                            <option value="PDF">PDF</option>
+                            <option value="QUIZ">QUIZ</option>
+                          </select>
+                          {mod.lessons.length > 1 && <button onClick={() => removeNMLesson(mi, li)} style={m.removeBtn}>✕</button>}
+                        </div>
+                      ))}
+                      <button onClick={() => addNMLesson(mi)} style={m.addLessonBtn}>+ Lección</button>
+                    </div>
+                  ))}
+                  <button onClick={addNewModule} style={m.addModuleBtn}>+ Agregar módulo</button>
+                </div>
+              )}
+
+              {tab === 'examen' && (
+                course?.hasExam ? (
+                  <div style={m.moduleCard}>
+                    <p style={{ margin: 0, fontWeight: 600, color: '#16a34a' }}>✅ Este curso ya tiene examen configurado.</p>
+                    <p style={{ ...m.hint, margin: '0.4rem 0 0' }}>
+                      Aquí solo se crea el examen cuando falta. La edición de preguntas existentes se gestiona aparte.
+                    </p>
+                  </div>
+                ) : (
+                  <div>
+                    <p style={m.hint}>Este curso <strong>no tiene examen</strong>. Créalo aquí para poder publicarlo.</p>
+                    <div style={m.grid2}>
+                      <div>
+                        <label style={m.label}>Nota mínima (%) <span style={m.req}>*</span></label>
+                        <input style={m.input} type="number" min="60" max="100" value={exam.passingScore} onChange={e => setExam(x => ({ ...x, passingScore: e.target.value }))} />
+                      </div>
+                      <div>
+                        <label style={m.label}>Tiempo límite (min, opcional)</label>
+                        <input style={m.input} type="number" min="5" max="300" value={exam.timeLimitMinutes} onChange={e => setExam(x => ({ ...x, timeLimitMinutes: e.target.value }))} />
+                      </div>
+                    </div>
+                    {exam.questions.map((q, qi) => (
+                      <div key={qi} style={m.moduleCard}>
+                        <div style={m.moduleHeader}>
+                          <span style={m.moduleNum}>Pregunta {qi + 1}</span>
+                          <input style={{ ...m.input, flex: 1, marginBottom: 0 }} value={q.text} onChange={e => setQuestionText(qi, e.target.value)} placeholder="Enunciado" />
+                          <button onClick={() => removeQuestion(qi)} style={m.removeBtn}>✕</button>
+                        </div>
+                        {q.options.map((o, oi) => (
+                          <div key={oi} style={m.lessonRow}>
+                            <button onClick={() => setCorrect(qi, oi)} title="Marcar correcta" style={{ ...m.correctDot, ...(o.isCorrect ? m.correctDotOn : {}) }}>{o.isCorrect ? '●' : '○'}</button>
+                            <input style={{ ...m.input, flex: 1, marginBottom: 0 }} value={o.text} onChange={e => setOptionText(qi, oi, e.target.value)} placeholder={`Opción ${oi + 1}`} />
+                            {q.options.length > 2 && <button onClick={() => removeOption(qi, oi)} style={m.removeBtn}>✕</button>}
+                          </div>
+                        ))}
+                        <button onClick={() => addOption(qi)} style={m.addLessonBtn}>+ Opción</button>
+                      </div>
+                    ))}
+                    <button onClick={addQuestion} style={m.addModuleBtn}>+ Agregar pregunta</button>
+                  </div>
+                )
+              )}
+            </>
+          )}
+        </div>
+
+        <div style={m.footer}>
+          <button onClick={onClose} style={m.btnSecondary}>Cerrar</button>
+          {tab === 'datos' && <button onClick={handleSaveData} disabled={saving || loading} style={m.btnPrimary}>{saving ? 'Guardando...' : 'Guardar datos'}</button>}
+          {tab === 'contenido' && <button onClick={handleAddContent} disabled={saving || loading} style={m.btnPrimary}>{saving ? 'Guardando...' : 'Agregar contenido'}</button>}
+          {tab === 'examen' && !course?.hasExam && <button onClick={handleCreateExam} disabled={saving || loading} style={m.btnPrimary}>{saving ? 'Guardando...' : 'Crear examen'}</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Panel de Cupones ────────────────────────────────────────────
+function emptyCouponForm() {
+  return { code: '', discountPercent: '', maxUses: '', expiresAt: '' };
+}
+
+function CouponFormModal({ initial, onClose, onSaved }) {
+  const isEdit = !!initial;
+  const [form, setForm] = useState(initial ? {
+    code: initial.code,
+    discountPercent: String(initial.discountPercent),
+    maxUses: String(initial.maxUses),
+    expiresAt: initial.expiresAt ? initial.expiresAt.slice(0, 16) : '',
+  } : emptyCouponForm());
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const save = async () => {
+    setError('');
+    if (!form.code.trim()) { setError('El código es obligatorio.'); return; }
+    const discount = parseInt(form.discountPercent);
+    if (isNaN(discount) || discount < 1 || discount > 100) { setError('El descuento debe estar entre 1 y 100.'); return; }
+    const maxUses = parseInt(form.maxUses);
+    if (isNaN(maxUses) || maxUses < 1) { setError('El máximo de usos debe ser al menos 1.'); return; }
+    if (!form.expiresAt) { setError('Selecciona una fecha de vencimiento.'); return; }
+
+    setLoading(true);
+    try {
+      const payload = {
+        code: form.code.trim().toUpperCase(),
+        discountPercent: discount,
+        maxUses,
+        expiresAt: new Date(form.expiresAt).toISOString(),
+      };
+      if (isEdit) {
+        const updated = await updateCouponApi(initial.id, payload);
+        onSaved(updated, true);
+      } else {
+        const created = await createCouponApi(payload);
+        onSaved(created, false);
+      }
+      onClose();
+    } catch (e) {
+      setError(e.response?.data?.message ?? 'No se pudo guardar el cupón.');
+    } finally { setLoading(false); }
+  };
+
+  return (
+    <div style={m.overlay}>
+      <div style={{ ...m.modal, maxWidth: '420px' }}>
+        <div style={m.header}>
+          <h2 style={m.title}>{isEdit ? 'Editar cupón' : 'Nuevo cupón'}</h2>
+          <button onClick={onClose} style={m.closeBtn}>✕</button>
+        </div>
+        <div style={m.body}>
+          {error && <p style={m.error}>{error}</p>}
+          <label style={m.label}>Código <span style={m.req}>*</span></label>
+          <input style={{ ...m.input, textTransform: 'uppercase' }} value={form.code} onChange={e => set('code', e.target.value)} placeholder="Ej: NDEMY20" />
+
+          <label style={m.label}>Descuento (%) <span style={m.req}>*</span></label>
+          <input style={m.input} type="number" min="1" max="100" value={form.discountPercent} onChange={e => set('discountPercent', e.target.value)} placeholder="20" />
+
+          <label style={m.label}>Máximo de usos <span style={m.req}>*</span></label>
+          <input style={m.input} type="number" min="1" value={form.maxUses} onChange={e => set('maxUses', e.target.value)} placeholder="100" />
+
+          <label style={m.label}>Vence el <span style={m.req}>*</span></label>
+          <input style={m.input} type="datetime-local" value={form.expiresAt} onChange={e => set('expiresAt', e.target.value)} />
+        </div>
+        <div style={m.footer}>
+          <button onClick={onClose} style={m.btnSecondary}>Cancelar</button>
+          <button onClick={save} disabled={loading} style={m.btnPrimary}>{loading ? 'Guardando...' : 'Guardar cupón'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CouponsPanel() {
+  const [coupons, setCoupons] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [toast, setToast] = useState('');
+
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
+
+  const load = () => {
+    setLoading(true);
+    getAllCouponsApi()
+      .then(data => setCoupons(Array.isArray(data) ? data : []))
+      .catch(() => setCoupons([]))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const handleSaved = (coupon, isEdit) => {
+    if (isEdit) {
+      setCoupons(cs => cs.map(c => c.id === coupon.id ? coupon : c));
+      showToast('✅ Cupón actualizado');
+    } else {
+      setCoupons(cs => [coupon, ...cs]);
+      showToast('✅ Cupón creado');
+    }
+  };
+
+  const handleDeactivate = async (coupon) => {
+    try {
+      await deactivateCouponApi(coupon.id);
+      setCoupons(cs => cs.map(c => c.id === coupon.id ? { ...c, isActive: false } : c));
+      showToast('🗑 Cupón desactivado');
+    } catch (e) {
+      showToast('❌ ' + (e.response?.data?.message ?? 'No se pudo desactivar'));
+    }
+  };
+
+  return (
+    <section style={s.section}>
+      {toast && <div style={s.toast}>{toast}</div>}
+      {showForm && (
+        <CouponFormModal
+          initial={editing}
+          onClose={() => { setShowForm(false); setEditing(null); }}
+          onSaved={handleSaved}
+        />
+      )}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+        <h2 style={s.sectionTitle}>Cupones de descuento</h2>
+        <button style={s.createBtn} onClick={() => { setEditing(null); setShowForm(true); }}>+ Nuevo cupón</button>
+      </div>
+
+      {loading ? (
+        <p style={s.empty}>Cargando cupones...</p>
+      ) : coupons.length === 0 ? (
+        <div style={s.emptyState}>
+          <span style={{ fontSize: '2.5rem' }}>🎟️</span>
+          <p>Aún no has creado cupones de descuento.</p>
+          <button style={s.createBtn} onClick={() => { setEditing(null); setShowForm(true); }}>+ Nuevo cupón</button>
+        </div>
+      ) : (
+        <div style={s.table}>
+          <div style={s.tableHeader}>
+            <span style={{ flex: 2 }}>Código</span>
+            <span style={{ flex: 1 }}>Descuento</span>
+            <span style={{ flex: 1 }}>Usos</span>
+            <span style={{ flex: 2 }}>Vence</span>
+            <span style={{ flex: 1 }}>Estado</span>
+            <span style={{ flex: 2 }}>Acciones</span>
+          </div>
+          {coupons.map(c => (
+            <div key={c.id} style={s.tableRow}>
+              <span style={{ flex: 2, fontWeight: 700, color: '#111827' }}>{c.code}</span>
+              <span style={{ flex: 1 }}>{c.discountPercent}%</span>
+              <span style={{ flex: 1 }}>{c.currentUses} / {c.maxUses}</span>
+              <span style={{ flex: 2, fontSize: '0.8rem', color: '#6b7280' }}>{formatDateTime(c.expiresAt)}</span>
+              <span style={{ flex: 1 }}>
+                <Badge text={c.isActive ? 'Activo' : 'Inactivo'} color={c.isActive ? 'green' : 'yellow'} />
+              </span>
+              <div style={{ flex: 2, display: 'flex', gap: '0.5rem' }}>
+                {c.isActive && (
+                  <>
+                    <button style={s.rowBtn} onClick={() => { setEditing(c); setShowForm(true); }}>Editar</button>
+                    <button style={{ ...s.rowBtn, color: '#dc2626', borderColor: '#fecaca' }} onClick={() => handleDeactivate(c)}>Desactivar</button>
+                  </>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function formatDateTime(value) {
+  if (!value) return '—';
+  try {
+    return new Date(value).toLocaleString('es-SV', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  } catch { return value; }
+}
+
+// ── Panel de Reporte de Ingresos ────────────────────────────────
+function RevenuePanel() {
+  const [report, setReport] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    getInstructorRevenueReportApi()
+      .then(setReport)
+      .catch(() => setError('No se pudo cargar el reporte de ingresos.'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <section style={s.section}><p style={s.empty}>Cargando reporte...</p></section>;
+  if (error) return <section style={s.section}><p style={{ color: '#dc2626' }}>{error}</p></section>;
+  if (!report) return null;
+
+  const breakdown = report.courseBreakdown ?? [];
+
+  return (
+    <section style={s.section}>
+      <h2 style={s.sectionTitle}>Reporte de ingresos</h2>
+      <div style={s.statsRow}>
+        <div style={s.statCard}>
+          <span style={s.statIcon}>💰</span>
+          <span style={s.statValue}>${Number(report.totalRevenue ?? 0).toFixed(2)}</span>
+          <span style={s.statLabel}>Ingresos totales</span>
+        </div>
+        <div style={s.statCard}>
+          <span style={s.statIcon}>📅</span>
+          <span style={s.statValue}>${Number(report.currentMonthRevenue ?? 0).toFixed(2)}</span>
+          <span style={s.statLabel}>Este mes</span>
+        </div>
+        <div style={s.statCard}>
+          <span style={s.statIcon}>📚</span>
+          <span style={s.statValue}>{breakdown.length}</span>
+          <span style={s.statLabel}>Cursos con ventas</span>
+        </div>
+      </div>
+
+      <h3 style={{ ...s.sectionTitle, fontSize: '0.95rem', marginTop: '1.5rem' }}>Desglose por curso</h3>
+      {breakdown.length === 0 ? (
+        <p style={s.empty}>Aún no tienes ventas registradas.</p>
+      ) : (
+        <div style={s.table}>
+          <div style={s.tableHeader}>
+            <span style={{ flex: 3 }}>Curso</span>
+            <span style={{ flex: 1 }}>Estudiantes</span>
+            <span style={{ flex: 1 }}>Ingresos</span>
+          </div>
+          {breakdown.map(c => (
+            <div key={c.courseId} style={s.tableRow}>
+              <span style={{ flex: 3, fontWeight: 600, color: '#111827' }}>{c.courseTitle}</span>
+              <span style={{ flex: 1 }}>{c.studentsPaid}</span>
+              <span style={{ flex: 1, fontWeight: 700, color: '#16a34a' }}>${Number(c.revenue ?? 0).toFixed(2)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 // ── Dashboard principal ───────────────────────────────────────
 export default function InstructorDashboard() {
   const { user } = useAuth();
@@ -307,10 +842,18 @@ export default function InstructorDashboard() {
   const [courses, setCourses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [editingId, setEditingId] = useState(null);
   const [publishing, setPublishing] = useState(null);
   const [toast, setToast] = useState('');
+  const [section, setSection] = useState('cursos'); // cursos | cupones | ingresos
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
+
+  const reloadCourses = () => {
+    getMyCoursesApi()
+      .then(data => setCourses(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  };
 
   useEffect(() => {
     getMyCoursesApi()
@@ -345,6 +888,14 @@ export default function InstructorDashboard() {
         />
       )}
 
+      {editingId && (
+        <EditCourseModal
+          courseId={editingId}
+          onClose={() => { setEditingId(null); reloadCourses(); }}
+          onUpdated={() => showToast('✅ Curso actualizado')}
+        />
+      )}
+
       {/* Hero */}
       <section style={s.hero}>
         <div>
@@ -370,52 +921,77 @@ export default function InstructorDashboard() {
         ))}
       </div>
 
-      {/* Tabla de cursos */}
-      <section style={s.section}>
-        <h2 style={s.sectionTitle}>Mis cursos</h2>
-        {loading ? (
-          <p style={s.empty}>Cargando...</p>
-        ) : courses.length === 0 ? (
-          <div style={s.emptyState}>
-            <span style={{ fontSize: '2.5rem' }}>📝</span>
-            <p>Aún no tienes cursos. ¡Crea el primero!</p>
-            <button style={s.createBtn} onClick={() => setShowCreate(true)}>+ Nuevo curso</button>
-          </div>
-        ) : (
-          <div style={s.table}>
-            <div style={s.tableHeader}>
-              <span style={{ flex: 3 }}>Curso</span>
-              <span style={{ flex: 1 }}>Precio</span>
-              <span style={{ flex: 1 }}>Estado</span>
-              <span style={{ flex: 1 }}>Acciones</span>
-            </div>
-            {courses.map(course => (
-              <div key={course.courseId} style={s.tableRow}>
-                <div style={{ flex: 3 }}>
-                  <p style={s.courseTitle}>{course.title}</p>
-                  <p style={s.courseCategory}>{course.category}</p>
-                </div>
-                <span style={{ flex: 1, fontWeight: 600, color: 'var(--text-h)' }}>${course.price}</span>
-                <span style={{ flex: 1 }}>
-                  <Badge text={course.isPublished ? 'Publicado' : 'Borrador'} color={course.isPublished ? 'green' : 'yellow'} />
-                </span>
-                <div style={{ flex: 1, display: 'flex', gap: '0.5rem' }}>
-                  <button onClick={() => navigate(`/courses/${course.courseId}`)} style={s.rowBtn}>Ver</button>
-                  {!course.isPublished && (
-                    <button
-                      onClick={() => handlePublish(course.courseId)}
-                      disabled={publishing === course.courseId}
-                      style={{ ...s.rowBtn, ...s.rowBtnPublish }}
-                    >
-                      {publishing === course.courseId ? '...' : 'Publicar'}
-                    </button>
-                  )}
-                </div>
+      {/* Navegación de secciones */}
+      <div style={s.sectionTabs}>
+        {[
+          { key: 'cursos', label: '📚 Mis cursos' },
+          { key: 'cupones', label: '🎟️ Cupones' },
+          { key: 'ingresos', label: '💰 Ingresos' },
+        ].map(t => (
+          <button
+            key={t.key}
+            onClick={() => setSection(t.key)}
+            style={{ ...s.sectionTab, ...(section === t.key ? s.sectionTabActive : {}) }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {section === 'cursos' && (
+        <>
+          {/* Tabla de cursos */}
+          <section style={s.section}>
+            <h2 style={s.sectionTitle}>Mis cursos</h2>
+            {loading ? (
+              <p style={s.empty}>Cargando...</p>
+            ) : courses.length === 0 ? (
+              <div style={s.emptyState}>
+                <span style={{ fontSize: '2.5rem' }}>📝</span>
+                <p>Aún no tienes cursos. ¡Crea el primero!</p>
+                <button style={s.createBtn} onClick={() => setShowCreate(true)}>+ Nuevo curso</button>
               </div>
-            ))}
-          </div>
-        )}
-      </section>
+            ) : (
+              <div style={s.table}>
+                <div style={s.tableHeader}>
+                  <span style={{ flex: 3 }}>Curso</span>
+                  <span style={{ flex: 1 }}>Precio</span>
+                  <span style={{ flex: 1 }}>Estado</span>
+                  <span style={{ flex: 1 }}>Acciones</span>
+                </div>
+                {courses.map(course => (
+                  <div key={course.courseId} style={s.tableRow}>
+                    <div style={{ flex: 3 }}>
+                      <p style={s.courseTitle}>{course.title}</p>
+                      <p style={s.courseCategory}>{course.category}</p>
+                    </div>
+                    <span style={{ flex: 1, fontWeight: 600, color: 'var(--text-h)' }}>${course.price}</span>
+                    <span style={{ flex: 1 }}>
+                      <Badge text={course.isPublished ? 'Publicado' : 'Borrador'} color={course.isPublished ? 'green' : 'yellow'} />
+                    </span>
+                    <div style={{ flex: 1, display: 'flex', gap: '0.5rem' }}>
+                      <button onClick={() => navigate(`/courses/${course.courseId}`)} style={s.rowBtn}>Ver</button>
+                      <button onClick={() => setEditingId(course.courseId)} style={s.rowBtn}>Editar</button>
+                      {!course.isPublished && (
+                        <button
+                          onClick={() => handlePublish(course.courseId)}
+                          disabled={publishing === course.courseId}
+                          style={{ ...s.rowBtn, ...s.rowBtnPublish }}
+                        >
+                          {publishing === course.courseId ? '...' : 'Publicar'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </>
+      )}
+
+      {section === 'cupones' && <CouponsPanel />}
+      {section === 'ingresos' && <RevenuePanel />}
     </div>
   );
 }
@@ -482,6 +1058,19 @@ const s = {
   statLabel: { fontSize: '0.78rem', color: '#6b7280' },
 
   sectionTitle: { fontSize: '1.1rem', fontWeight: 700, color: '#111827' },
+
+  sectionTabs: { display: 'flex', gap: '0.5rem', marginBottom: '1.5rem', borderBottom: '1px solid #e5e7eb', paddingBottom: '0.5rem' },
+  sectionTab: {
+    padding: '0.5rem 1rem',
+    border: 'none',
+    borderRadius: '8px',
+    background: 'transparent',
+    color: '#6b7280',
+    fontSize: '0.875rem',
+    fontWeight: 600,
+    cursor: 'pointer',
+  },
+  sectionTabActive: { background: 'rgba(99,102,241,0.12)', color: '#6366f1' },
 
   emptyState: {
     display: 'flex',
@@ -594,6 +1183,28 @@ const m = {
     padding: '1.25rem 1.5rem',
     overflowY: 'auto',
     flex: 1,
+  },
+
+  tabs: {
+    display: 'flex',
+    gap: '0.25rem',
+    padding: '0 1.5rem',
+    borderBottom: '1px solid #e5e7eb',
+  },
+  tab: {
+    padding: '0.7rem 1rem',
+    border: 'none',
+    background: 'none',
+    cursor: 'pointer',
+    fontSize: '0.875rem',
+    fontWeight: 600,
+    color: '#6b7280',
+    borderBottom: '2px solid transparent',
+    marginBottom: '-1px',
+  },
+  tabActive: {
+    color: '#6366f1',
+    borderBottom: '2px solid #6366f1',
   },
 
   label: {

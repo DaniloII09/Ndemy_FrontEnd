@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { getAllUsersApi, lockUserApi, unlockUserApi, deactivateUserApi, updateUserApi } from '../api/admin';
+import { getAdminOverviewApi } from '../api/reports';
 
 const ROLE_LABELS = { ADMIN: 'Admin', INSTRUCTOR: 'Instructor', STUDENT: 'Estudiante' };
 const ROLE_COLORS = {
@@ -82,6 +83,76 @@ function RoleModal({ user, onClose, onSaved }) {
   );
 }
 
+// ── Panel de reporte general de la plataforma ───────────────────
+function OverviewPanel() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    getAdminOverviewApi()
+      .then(setData)
+      .catch(() => setError('No se pudo cargar el reporte general.'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <p style={{ color: 'var(--text)' }}>Cargando reporte...</p>;
+  if (error) return <p style={{ color: '#dc2626' }}>{error}</p>;
+  if (!data) return null;
+
+  const rows = [
+    { icon: '🎓', label: 'Estudiantes', value: data.totalStudents },
+    { icon: '👨‍🏫', label: 'Instructores', value: data.totalInstructors },
+    { icon: '🛡️', label: 'Administradores', value: data.totalAdmins },
+    { icon: '📚', label: 'Cursos publicados', value: data.totalPublishedCourses },
+    { icon: '✅', label: 'Inscripciones activas', value: data.totalActiveEnrollments },
+    { icon: '💰', label: 'Ingresos de la plataforma', value: `$${Number(data.totalPlatformRevenue ?? 0).toFixed(2)}` },
+  ];
+
+  return (
+    <div>
+      <div style={{ ...s.statsRow, gridTemplateColumns: 'repeat(3, 1fr)' }}>
+        {rows.map(r => (
+          <div key={r.label} style={s.statCard}>
+            <span style={s.statIcon}>{r.icon}</span>
+            <span style={{ ...s.statValue, color: 'var(--text-h)' }}>{r.value}</span>
+            <span style={s.statLabel}>{r.label}</span>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginTop: '1.75rem' }}>
+        <RankList title="🏆 Cursos con más inscripciones" items={data.topCoursesByEnrollments} valueKey="enrollments" valueSuffix=" inscritos" />
+        <RankList title="💵 Cursos con más ingresos" items={data.topCoursesByRevenue} valueKey="revenue" valuePrefix="$" />
+      </div>
+    </div>
+  );
+}
+
+function RankList({ title, items, valueKey, valuePrefix = '', valueSuffix = '' }) {
+  const list = Array.isArray(items) ? items : [];
+  return (
+    <div style={s.table}>
+      <div style={s.tableHead}><span>{title}</span></div>
+      {list.length === 0 ? (
+        <p style={{ padding: '1.25rem', color: 'var(--text)', fontSize: '0.875rem' }}>Sin datos aún.</p>
+      ) : (
+        list.map((c, i) => (
+          <div key={c.courseId} style={{ ...s.tableRow, justifyContent: 'space-between' }}>
+            <div>
+              <p style={{ margin: 0, fontWeight: 600, color: 'var(--text-h)', fontSize: '0.875rem' }}>{i + 1}. {c.courseTitle}</p>
+              <p style={{ margin: '0.1rem 0 0', fontSize: '0.78rem', color: 'var(--text)' }}>{c.instructorName}</p>
+            </div>
+            <span style={{ fontWeight: 700, color: 'var(--accent)', whiteSpace: 'nowrap' }}>
+              {valuePrefix}{Number(c[valueKey]).toLocaleString()}{valueSuffix}
+            </span>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
 // ── Dashboard ─────────────────────────────────────────────────
 export default function AdminDashboard() {
   const { user: me } = useAuth();
@@ -93,6 +164,7 @@ export default function AdminDashboard() {
   const [confirm, setConfirm]   = useState(null);    // { type, user }
   const [roleModal, setRoleModal] = useState(null);
   const [toast, setToast]       = useState('');
+  const [tab, setTab]           = useState('usuarios'); // usuarios | reporte
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3500); };
 
@@ -200,91 +272,103 @@ export default function AdminDashboard() {
         <span style={{ fontSize: '3.5rem' }}>🛡️</span>
       </section>
 
-      {/* Stats */}
-      <div style={s.statsRow}>
-        {[
-          { label: 'Total usuarios', value: stats.total, icon: '👥', color: '' },
-          { label: 'Activos', value: stats.active, icon: '✅', color: '#16a34a' },
-          { label: 'Baneados', value: stats.banned, icon: '🔒', color: '#ca8a04' },
-          { label: 'Desactivados', value: stats.inactive, icon: '❌', color: '#dc2626' },
-        ].map(st => (
-          <div key={st.label} style={s.statCard}>
-            <span style={s.statIcon}>{st.icon}</span>
-            <span style={{ ...s.statValue, color: st.color || 'var(--text-h)' }}>{st.value}</span>
-            <span style={s.statLabel}>{st.label}</span>
-          </div>
-        ))}
+      {/* Tabs */}
+      <div style={s.tabsRow}>
+        <button onClick={() => setTab('usuarios')} style={{ ...s.tabBtn, ...(tab === 'usuarios' ? s.tabBtnActive : {}) }}>👥 Usuarios</button>
+        <button onClick={() => setTab('reporte')} style={{ ...s.tabBtn, ...(tab === 'reporte' ? s.tabBtnActive : {}) }}>📊 Reporte general</button>
       </div>
 
-      {/* Filtros */}
-      <div style={s.toolbar}>
-        <input
-          style={s.search}
-          placeholder="Buscar por nombre o email..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
-        <div style={s.filterRow}>
-          {['all', 'active', 'banned', 'inactive'].map(f => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              style={{ ...s.filterBtn, ...(filter === f ? s.filterBtnActive : {}) }}
-            >
-              {{ all: 'Todos', active: 'Activos', banned: 'Baneados', inactive: 'Inactivos' }[f]}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Tabla */}
-      {loading ? (
-        <p style={{ color: 'var(--text)' }}>Cargando usuarios...</p>
+      {tab === 'reporte' ? (
+        <OverviewPanel />
       ) : (
-        <div style={s.table}>
-          <div style={s.tableHead}>
-            <span style={{ flex: 3 }}>Usuario</span>
-            <span style={{ flex: 1 }}>Rol</span>
-            <span style={{ flex: 1 }}>Estado</span>
-            <span style={{ flex: 2 }}>Acciones</span>
+        <>
+          {/* Stats */}
+          <div style={s.statsRow}>
+            {[
+              { label: 'Total usuarios', value: stats.total, icon: '👥', color: '' },
+              { label: 'Activos', value: stats.active, icon: '✅', color: '#16a34a' },
+              { label: 'Baneados', value: stats.banned, icon: '🔒', color: '#ca8a04' },
+              { label: 'Desactivados', value: stats.inactive, icon: '❌', color: '#dc2626' },
+            ].map(st => (
+              <div key={st.label} style={s.statCard}>
+                <span style={s.statIcon}>{st.icon}</span>
+                <span style={{ ...s.statValue, color: st.color || 'var(--text-h)' }}>{st.value}</span>
+                <span style={s.statLabel}>{st.label}</span>
+              </div>
+            ))}
           </div>
-          {filtered.length === 0 && <p style={{ padding: '1.5rem', color: 'var(--text)', fontSize: '0.875rem' }}>Sin resultados.</p>}
-          {filtered.map(u => (
-            <div key={u.id} style={{ ...s.tableRow, ...(u.isLocked ? s.rowBanned : {}) }}>
-              {/* Info */}
-              <div style={{ flex: 3 }}>
-                <div style={s.userInfo}>
-                  <div style={s.avatar}>{u.name.charAt(0).toUpperCase()}</div>
-                  <div>
-                    <p style={s.userName}>
-                      {u.name}
-                      {u.id === me?.id && <span style={s.meTag}> (tú)</span>}
-                    </p>
-                    <p style={s.userEmail}>{u.email}</p>
+
+          {/* Filtros */}
+          <div style={s.toolbar}>
+            <input
+              style={s.search}
+              placeholder="Buscar por nombre o email..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+            <div style={s.filterRow}>
+              {['all', 'active', 'banned', 'inactive'].map(f => (
+                <button
+                  key={f}
+                  onClick={() => setFilter(f)}
+                  style={{ ...s.filterBtn, ...(filter === f ? s.filterBtnActive : {}) }}
+                >
+                  {{ all: 'Todos', active: 'Activos', banned: 'Baneados', inactive: 'Inactivos' }[f]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Tabla */}
+          {loading ? (
+            <p style={{ color: 'var(--text)' }}>Cargando usuarios...</p>
+          ) : (
+            <div style={s.table}>
+              <div style={s.tableHead}>
+                <span style={{ flex: 3 }}>Usuario</span>
+                <span style={{ flex: 1 }}>Rol</span>
+                <span style={{ flex: 1 }}>Estado</span>
+                <span style={{ flex: 2 }}>Acciones</span>
+              </div>
+              {filtered.length === 0 && <p style={{ padding: '1.5rem', color: 'var(--text)', fontSize: '0.875rem' }}>Sin resultados.</p>}
+              {filtered.map(u => (
+                <div key={u.id} style={{ ...s.tableRow, ...(u.isLocked ? s.rowBanned : {}) }}>
+                  {/* Info */}
+                  <div style={{ flex: 3 }}>
+                    <div style={s.userInfo}>
+                      <div style={s.avatar}>{u.name.charAt(0).toUpperCase()}</div>
+                      <div>
+                        <p style={s.userName}>
+                          {u.name}
+                          {u.id === me?.id && <span style={s.meTag}> (tú)</span>}
+                        </p>
+                        <p style={s.userEmail}>{u.email}</p>
+                      </div>
+                    </div>
+                  </div>
+                  <span style={{ flex: 1 }}><RoleBadge role={u.role} /></span>
+                  <span style={{ flex: 1 }}><StatusBadge isLocked={u.isLocked} isActive={u.isActive} /></span>
+
+                  {/* Acciones */}
+                  <div style={{ flex: 2, display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                    {u.id !== me?.id && u.isActive && (
+                      <>
+                        <button onClick={() => setRoleModal(u)} style={s.actionBtn}>Rol</button>
+                        {u.isLocked
+                          ? <button onClick={() => setConfirm({ type: 'unban', user: u })} style={{ ...s.actionBtn, ...s.btnGreen }}>Desbanear</button>
+                          : <button onClick={() => setConfirm({ type: 'ban', user: u })} style={{ ...s.actionBtn, ...s.btnOrange }}>Banear</button>
+                        }
+                        <button onClick={() => setConfirm({ type: 'deactivate', user: u })} style={{ ...s.actionBtn, ...s.btnRed }}>Desactivar</button>
+                      </>
+                    )}
+                    {u.id === me?.id && <span style={{ fontSize: '0.78rem', color: 'var(--text)' }}>Tu cuenta</span>}
+                    {!u.isActive && <span style={{ fontSize: '0.78rem', color: '#dc2626' }}>Desactivado</span>}
                   </div>
                 </div>
-              </div>
-              <span style={{ flex: 1 }}><RoleBadge role={u.role} /></span>
-              <span style={{ flex: 1 }}><StatusBadge isLocked={u.isLocked} isActive={u.isActive} /></span>
-
-              {/* Acciones */}
-              <div style={{ flex: 2, display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                {u.id !== me?.id && u.isActive && (
-                  <>
-                    <button onClick={() => setRoleModal(u)} style={s.actionBtn}>Rol</button>
-                    {u.isLocked
-                      ? <button onClick={() => setConfirm({ type: 'unban', user: u })} style={{ ...s.actionBtn, ...s.btnGreen }}>Desbanear</button>
-                      : <button onClick={() => setConfirm({ type: 'ban', user: u })} style={{ ...s.actionBtn, ...s.btnOrange }}>Banear</button>
-                    }
-                    <button onClick={() => setConfirm({ type: 'deactivate', user: u })} style={{ ...s.actionBtn, ...s.btnRed }}>Desactivar</button>
-                  </>
-                )}
-                {u.id === me?.id && <span style={{ fontSize: '0.78rem', color: 'var(--text)' }}>Tu cuenta</span>}
-                {!u.isActive && <span style={{ fontSize: '0.78rem', color: '#dc2626' }}>Desactivado</span>}
-              </div>
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -292,6 +376,9 @@ export default function AdminDashboard() {
 
 const s = {
   page: { maxWidth: '1100px', margin: '0 auto', padding: '2rem 1.5rem 4rem', fontFamily: 'var(--sans)', textAlign: 'left' },
+  tabsRow: { display: 'flex', gap: '0.5rem', marginBottom: '1.5rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' },
+  tabBtn: { padding: '0.5rem 1rem', border: 'none', borderRadius: '8px', background: 'transparent', color: 'var(--text)', fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer' },
+  tabBtnActive: { background: 'rgba(220,38,38,0.1)', color: '#dc2626' },
   toast: { position: 'fixed', bottom: '1.5rem', right: '1.5rem', background: '#1a1a1a', color: '#fff', padding: '0.75rem 1.25rem', borderRadius: '10px', fontSize: '0.875rem', zIndex: 999, boxShadow: '0 8px 24px rgba(0,0,0,0.2)' },
   hero: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(135deg, rgba(220,38,38,0.08) 0%, transparent 70%)', border: '1px solid rgba(220,38,38,0.2)', borderRadius: '20px', padding: '2rem 2.5rem', marginBottom: '2rem' },
   heroSub: { fontSize: '0.78rem', color: '#dc2626', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 0.2rem' },

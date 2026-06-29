@@ -139,6 +139,9 @@ export default function Navbar() {
                       <button onClick={() => { navigate('/certificates'); setMenuOpen(false); }} style={s.dropItem}>
                         <span>🏅</span> Mis certificados
                       </button>
+                      <button onClick={() => { navigate('/wishlist'); setMenuOpen(false); }} style={s.dropItem}>
+                        <span>🤍</span> Lista de deseos
+                      </button>
                       <button onClick={() => { navigate('/profile'); setMenuOpen(false); }} style={s.dropItem}>
                         <span>⚙️</span> Editar perfil
                       </button>
