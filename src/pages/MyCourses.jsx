@@ -1,20 +1,49 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getMyEnrolledCoursesApi } from '../api/student';
+import { getMyEnrolledCoursesApi, getMyPaymentsApi, refundApi } from '../api/student';
 
 export default function MyCourses() {
   const navigate = useNavigate();
   const [courses, setCourses] = useState([]);
+  const [payments, setPayments] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [unenrolling, setUnenrolling] = useState(null);
+
+  const loadAll = async () => {
+    const [cs, ps] = await Promise.all([
+      getMyEnrolledCoursesApi().catch(() => []),
+      getMyPaymentsApi().catch(() => []),
+    ]);
+    setCourses(Array.isArray(cs) ? cs : []);
+    setPayments(Array.isArray(ps) ? ps : []);
+  };
 
   useEffect(() => {
     let active = true;
-    getMyEnrolledCoursesApi()
-      .then(data => { if (active) setCourses(Array.isArray(data) ? data : []); })
-      .catch(() => { if (active) setCourses([]); })
-      .finally(() => { if (active) setIsLoading(false); });
+    loadAll().finally(() => { if (active) setIsLoading(false); });
     return () => { active = false; };
   }, []);
+
+  // Busca el pago COMPLETED del curso (necesario para reembolsar)
+  const paymentIdForCourse = (courseId) => {
+    const pay = payments.find(p => p.courseId === courseId && p.status === 'COMPLETED');
+    return pay ? pay.id : null;
+  };
+
+  const handleUnenroll = async (courseId) => {
+    const pid = paymentIdForCourse(courseId);
+    if (!pid) return;
+    if (!window.confirm('¿Desinscribirte de este curso? Se reembolsará tu pago y perderás el acceso de inmediato.')) return;
+    setUnenrolling(courseId);
+    try {
+      await refundApi(pid);
+      await loadAll();
+    } catch (e) {
+      alert(e.response?.data?.message ?? 'No se pudo desinscribir.');
+    } finally {
+      setUnenrolling(null);
+    }
+  };
 
   return (
     <div style={s.page}>
@@ -35,6 +64,7 @@ export default function MyCourses() {
         <div style={s.grid}>
           {courses.map(c => {
             const pct = Math.round(c.progress ?? 0);
+            const canUnenroll = !!paymentIdForCourse(c.courseId);
             return (
               <div key={c.courseId} style={s.card}>
                 <div style={s.thumbWrap}>
@@ -61,6 +91,16 @@ export default function MyCourses() {
                       </button>
                     )}
                   </div>
+
+                  {canUnenroll && (
+                    <button
+                      style={s.unenrollBtn}
+                      disabled={unenrolling === c.courseId}
+                      onClick={() => handleUnenroll(c.courseId)}
+                    >
+                      {unenrolling === c.courseId ? 'Procesando...' : 'Desinscribirme y reembolsar'}
+                    </button>
+                  )}
                 </div>
               </div>
             );
@@ -93,4 +133,5 @@ const s = {
   actions: { display: 'flex', gap: '0.5rem' },
   continueBtn: { flex: 1, padding: '0.6rem', background: 'var(--accent, #aa3bff)', color: '#fff', border: 'none', borderRadius: '9px', fontWeight: 700, cursor: 'pointer', fontSize: '0.875rem' },
   examBtn: { padding: '0.6rem 0.9rem', background: 'transparent', color: 'var(--accent, #aa3bff)', border: '1px solid var(--accent, #aa3bff)', borderRadius: '9px', fontWeight: 700, cursor: 'pointer', fontSize: '0.875rem', whiteSpace: 'nowrap' },
+  unenrollBtn: { width: '100%', marginTop: '0.6rem', padding: '0.55rem', background: 'transparent', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '9px', fontWeight: 700, cursor: 'pointer', fontSize: '0.82rem' },
 };
