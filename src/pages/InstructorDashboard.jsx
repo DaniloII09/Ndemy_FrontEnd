@@ -7,10 +7,17 @@ import {
   updateCourseApi,
   getCourseDetailApi,
   createModuleApi,
+  updateModuleApi,
+  deleteModuleApi,
   createLessonApi,
+  updateLessonApi,
+  deleteLessonApi,
   publishCourseApi,
+  getInstructorCourseStudentsApi,
 } from '../api/courses';
-import { createExamApi, createQuestionApi, createOptionApi } from '../api/exams';
+import { createExamApi, createQuestionApi, createOptionApi, getExamApi, updateExamApi, updateQuestionApi, deleteQuestionApi, updateOptionApi, deleteOptionApi } from '../api/exams';
+import { getAllCouponsApi, createCouponApi, updateCouponApi, deactivateCouponApi } from '../api/coupons';
+import { getInstructorRevenueReportApi } from '../api/reports';
 
 // ── Utilidades ────────────────────────────────────────────────
 const CONTENT_TYPES = ['VIDEO', 'PDF', 'QUIZ'];
@@ -314,6 +321,10 @@ function EditCourseModal({ courseId, onClose, onUpdated }) {
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const [newModules, setNewModules] = useState([]);
+  const [examEdit, setExamEdit] = useState(null);
+  const [examLoading, setExamLoading] = useState(false);
+  const [students, setStudents] = useState([]);
+  const [studentsLoading, setStudentsLoading] = useState(false);
   const [exam, setExam] = useState({ passingScore: 70, timeLimitMinutes: '', questions: [] });
 
   useEffect(() => {
@@ -358,6 +369,78 @@ function EditCourseModal({ courseId, onClose, onUpdated }) {
     } finally { setSaving(false); }
   };
 
+  // -- Edicion de modulos/lecciones existentes --
+  const [editMods, setEditMods] = useState([]);
+  useEffect(() => {
+    setEditMods((course?.modules ?? []).map(mm => ({
+      id: mm.id, title: mm.title, orderIndex: mm.orderIndex,
+      lessons: (mm.lessons ?? []).map(ll => ({
+        id: ll.id, title: ll.title, contentType: ll.contentType,
+        contentUrl: ll.contentUrl ?? '', orderIndex: ll.orderIndex,
+      })),
+    })));
+  }, [course]);
+
+  const setEMTitle = (mi, v) => setEditMods(ms => ms.map((x, j) => j === mi ? { ...x, title: v } : x));
+  const setEMLesson = (mi, li, k, v) => setEditMods(ms => ms.map((x, j) => j !== mi ? x : { ...x, lessons: x.lessons.map((l, k2) => k2 !== li ? l : { ...l, [k]: v }) }));
+
+  const refreshCourse = async () => {
+    const fresh = await getCourseDetailApi(courseId);
+    setCourse(fresh);
+  };
+
+  const saveExistingModule = async (mi) => {
+    const mod = editMods[mi];
+    if (!mod.title.trim()) { setError('El modulo necesita un titulo.'); return; }
+    setError(''); setOk(''); setSaving(true);
+    try {
+      await updateModuleApi(mod.id, { title: mod.title, orderIndex: mod.orderIndex });
+      setOk('✅ Modulo actualizado.');
+      await refreshCourse();
+    } catch (e) {
+      setError(e.response?.data?.message ?? 'No se pudo actualizar el modulo.');
+    } finally { setSaving(false); }
+  };
+
+  const deleteExistingModule = async (mi) => {
+    const mod = editMods[mi];
+    if (!window.confirm('¿Eliminar este modulo y sus lecciones?')) return;
+    setError(''); setOk(''); setSaving(true);
+    try {
+      await deleteModuleApi(mod.id);
+      setOk('✅ Modulo eliminado.');
+      await refreshCourse();
+    } catch (e) {
+      setError(e.response?.data?.message ?? 'No se pudo eliminar el modulo.');
+    } finally { setSaving(false); }
+  };
+
+  const saveExistingLesson = async (mi, li) => {
+    const les = editMods[mi].lessons[li];
+    if (!les.title.trim()) { setError('La leccion necesita un titulo.'); return; }
+    setError(''); setOk(''); setSaving(true);
+    try {
+      await updateLessonApi(les.id, { title: les.title, contentType: les.contentType, contentUrl: les.contentUrl || null, orderIndex: les.orderIndex });
+      setOk('✅ Leccion actualizada.');
+      await refreshCourse();
+    } catch (e) {
+      setError(e.response?.data?.message ?? 'No se pudo actualizar la leccion.');
+    } finally { setSaving(false); }
+  };
+
+  const deleteExistingLesson = async (mi, li) => {
+    const les = editMods[mi].lessons[li];
+    if (!window.confirm('¿Eliminar esta leccion?')) return;
+    setError(''); setOk(''); setSaving(true);
+    try {
+      await deleteLessonApi(les.id);
+      setOk('✅ Leccion eliminada.');
+      await refreshCourse();
+    } catch (e) {
+      setError(e.response?.data?.message ?? 'No se pudo eliminar la leccion.');
+    } finally { setSaving(false); }
+  };
+
   const addNewModule = () => setNewModules(ms => [...ms, { title: '', lessons: [{ title: '', contentType: 'VIDEO', contentUrl: '' }] }]);
   const setNMTitle = (i, v) => setNewModules(ms => ms.map((x, j) => j === i ? { ...x, title: v } : x));
   const addNMLesson = (mi) => setNewModules(ms => ms.map((x, j) => j === mi ? { ...x, lessons: [...x.lessons, { title: '', contentType: 'VIDEO', contentUrl: '' }] } : x));
@@ -394,6 +477,144 @@ function EditCourseModal({ courseId, onClose, onUpdated }) {
   const removeOption = (qi, oi) => setExam(e => ({ ...e, questions: e.questions.map((q, i) => i !== qi ? q : { ...q, options: q.options.filter((_, k) => k !== oi) }) }));
   const setOptionText = (qi, oi, v) => setExam(e => ({ ...e, questions: e.questions.map((q, i) => i !== qi ? q : { ...q, options: q.options.map((o, k) => k === oi ? { ...o, text: v } : o) }) }));
   const setCorrect = (qi, oi) => setExam(e => ({ ...e, questions: e.questions.map((q, i) => i !== qi ? q : { ...q, options: q.options.map((o, k) => ({ ...o, isCorrect: k === oi })) }) }));
+
+  const loadExam = async () => {
+    setExamLoading(true);
+    try {
+      const ex = await getExamApi(courseId);
+      setExamEdit(ex ? {
+        id: ex.id,
+        passingScore: ex.passingScore,
+        timeLimitMinutes: ex.timeLimitMinutes ?? '',
+        questions: (ex.questions ?? []).map(q => ({
+          id: q.id, text: q.text, orderIndex: q.orderIndex,
+          options: (q.options ?? []).map(o => ({ id: o.id, text: o.text, isCorrect: !!o.isCorrect })),
+        })),
+      } : null);
+    } catch {
+      setError('No se pudo cargar el examen.');
+    } finally { setExamLoading(false); }
+  };
+
+  const loadStudents = async () => {
+    setStudentsLoading(true);
+    try {
+      const list = await getInstructorCourseStudentsApi(courseId);
+      setStudents(Array.isArray(list) ? list : []);
+    } catch {
+      setError('No se pudo cargar la lista de inscritos.');
+    } finally { setStudentsLoading(false); }
+  };
+
+  useEffect(() => {
+    if (tab === 'examen' && course?.hasExam) loadExam();
+    if (tab === 'estudiantes') loadStudents();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, course?.hasExam]);
+
+  const setExF = (k, v) => setExamEdit(x => ({ ...x, [k]: v }));
+  const setExQText = (qi, v) => setExamEdit(x => ({ ...x, questions: x.questions.map((q, i) => i === qi ? { ...q, text: v } : q) }));
+  const setExOText = (qi, oi, v) => setExamEdit(x => ({ ...x, questions: x.questions.map((q, i) => i !== qi ? q : { ...q, options: q.options.map((o, k) => k === oi ? { ...o, text: v } : o) }) }));
+
+  const saveExamSettings = async () => {
+    const ps = parseInt(examEdit.passingScore);
+    if (isNaN(ps) || ps < 60 || ps > 100) { setError('La nota minima debe estar entre 60 y 100.'); return; }
+    setError(''); setOk(''); setSaving(true);
+    try {
+      await updateExamApi(courseId, { passingScore: ps, timeLimitMinutes: examEdit.timeLimitMinutes ? parseInt(examEdit.timeLimitMinutes) : null });
+      setOk('\u2705 Configuracion del examen actualizada.');
+      await loadExam();
+    } catch (e) {
+      setError(e.response?.data?.message ?? 'No se pudo actualizar el examen.');
+    } finally { setSaving(false); }
+  };
+
+  const saveQuestion = async (qi) => {
+    const q = examEdit.questions[qi];
+    if (!q.text.trim()) { setError('La pregunta necesita un enunciado.'); return; }
+    setError(''); setOk(''); setSaving(true);
+    try {
+      await updateQuestionApi(q.id, { text: q.text, orderIndex: q.orderIndex });
+      setOk('\u2705 Pregunta actualizada.');
+      await loadExam();
+    } catch (e) {
+      setError(e.response?.data?.message ?? 'No se pudo actualizar la pregunta.');
+    } finally { setSaving(false); }
+  };
+
+  const delQuestion = async (qi) => {
+    const q = examEdit.questions[qi];
+    if (!window.confirm('\u00bfEliminar esta pregunta?')) return;
+    setError(''); setOk(''); setSaving(true);
+    try {
+      await deleteQuestionApi(q.id);
+      setOk('\u2705 Pregunta eliminada.');
+      await loadExam();
+    } catch (e) {
+      setError(e.response?.data?.message ?? 'No se pudo eliminar la pregunta.');
+    } finally { setSaving(false); }
+  };
+
+  const addExQuestion = async () => {
+    setError(''); setOk(''); setSaving(true);
+    try {
+      const q = await createQuestionApi(examEdit.id, { text: 'Nueva pregunta', orderIndex: examEdit.questions.length });
+      await createOptionApi(q.id, { text: 'Opcion 1', isCorrect: true });
+      await createOptionApi(q.id, { text: 'Opcion 2', isCorrect: false });
+      setOk('\u2705 Pregunta agregada. Edita su texto y opciones.');
+      await loadExam();
+    } catch (e) {
+      setError(e.response?.data?.message ?? 'No se pudo agregar la pregunta.');
+    } finally { setSaving(false); }
+  };
+
+  const saveOption = async (qi, oi) => {
+    const o = examEdit.questions[qi].options[oi];
+    if (!o.text.trim()) { setError('La opcion necesita texto.'); return; }
+    setError(''); setOk(''); setSaving(true);
+    try {
+      await updateOptionApi(o.id, { text: o.text, isCorrect: o.isCorrect });
+      setOk('\u2705 Opcion actualizada.');
+      await loadExam();
+    } catch (e) {
+      setError(e.response?.data?.message ?? 'No se pudo actualizar la opcion.');
+    } finally { setSaving(false); }
+  };
+
+  const setExCorrect = async (qi, oi) => {
+    const o = examEdit.questions[qi].options[oi];
+    setError(''); setOk(''); setSaving(true);
+    try {
+      await updateOptionApi(o.id, { text: o.text, isCorrect: true });
+      await loadExam();
+    } catch (e) {
+      setError(e.response?.data?.message ?? 'No se pudo marcar la opcion.');
+    } finally { setSaving(false); }
+  };
+
+  const addExOption = async (qi) => {
+    const q = examEdit.questions[qi];
+    setError(''); setOk(''); setSaving(true);
+    try {
+      await createOptionApi(q.id, { text: 'Nueva opcion', isCorrect: false });
+      await loadExam();
+    } catch (e) {
+      setError(e.response?.data?.message ?? 'No se pudo agregar la opcion.');
+    } finally { setSaving(false); }
+  };
+
+  const delExOption = async (qi, oi) => {
+    const o = examEdit.questions[qi].options[oi];
+    if (!window.confirm('\u00bfEliminar esta opcion?')) return;
+    setError(''); setOk(''); setSaving(true);
+    try {
+      await deleteOptionApi(o.id);
+      setOk('\u2705 Opcion eliminada.');
+      await loadExam();
+    } catch (e) {
+      setError(e.response?.data?.message ?? 'No se pudo eliminar la opcion (no se puede borrar la correcta).');
+    } finally { setSaving(false); }
+  };
 
   const handleCreateExam = async () => {
     setError(''); setOk('');
@@ -441,7 +662,7 @@ function EditCourseModal({ courseId, onClose, onUpdated }) {
         </div>
 
         <div style={m.tabs}>
-          {[['datos', 'Datos'], ['contenido', 'Contenido'], ['examen', 'Examen']].map(([k, label]) => (
+          {[['datos', 'Datos'], ['contenido', 'Contenido'], ['examen', 'Examen'], ['estudiantes', 'Inscritos']].map(([k, label]) => (
             <button key={k} onClick={() => { setTab(k); setError(''); setOk(''); }}
               style={{ ...m.tab, ...(tab === k ? m.tabActive : {}) }}>
               {label}{k === 'examen' && course?.hasExam ? ' ✅' : ''}
@@ -493,13 +714,30 @@ function EditCourseModal({ courseId, onClose, onUpdated }) {
               {tab === 'contenido' && (
                 <div>
                   <p style={m.hint}>Módulos actuales del curso:</p>
-                  {(course?.modules ?? []).length === 0 ? (
+                  {editMods.length === 0 ? (
                     <p style={{ ...m.hint, color: '#9ca3af' }}>Este curso aún no tiene módulos.</p>
                   ) : (
-                    course.modules.map((mod, i) => (
+                    editMods.map((mod, mi) => (
                       <div key={mod.id} style={m.moduleCard}>
-                        <span style={m.moduleNum}>{i + 1}. {mod.title}</span>
-                        <p style={{ ...m.hint, margin: '0.35rem 0 0' }}>{(mod.lessons ?? []).length} lección(es)</p>
+                        <div style={m.moduleHeader}>
+                          <span style={m.moduleNum}>{mi + 1}.</span>
+                          <input style={{ ...m.input, flex: 1, marginBottom: 0 }} value={mod.title} onChange={e => setEMTitle(mi, e.target.value)} placeholder="Título del módulo" />
+                          <button onClick={() => saveExistingModule(mi)} disabled={saving} style={m.addLessonBtn}>Guardar</button>
+                          <button onClick={() => deleteExistingModule(mi)} disabled={saving} style={m.removeBtn}>✕</button>
+                        </div>
+                        {mod.lessons.map((les, li) => (
+                          <div key={les.id} style={m.lessonRow}>
+                            <input style={{ ...m.input, flex: 2, marginBottom: 0 }} value={les.title} onChange={e => setEMLesson(mi, li, 'title', e.target.value)} placeholder="Título de la lección" />
+                            <select style={{ ...m.input, marginBottom: 0 }} value={les.contentType} onChange={e => setEMLesson(mi, li, 'contentType', e.target.value)}>
+                              <option value="VIDEO">VIDEO</option>
+                              <option value="PDF">PDF</option>
+                              <option value="QUIZ">QUIZ</option>
+                            </select>
+                            <input style={{ ...m.input, flex: 2, marginBottom: 0 }} value={les.contentUrl} onChange={e => setEMLesson(mi, li, 'contentUrl', e.target.value)} placeholder="URL del contenido" />
+                            <button onClick={() => saveExistingLesson(mi, li)} disabled={saving} style={m.addLessonBtn}>Guardar</button>
+                            <button onClick={() => deleteExistingLesson(mi, li)} disabled={saving} style={m.removeBtn}>✕</button>
+                          </div>
+                        ))}
                       </div>
                     ))
                   )}
@@ -533,12 +771,43 @@ function EditCourseModal({ courseId, onClose, onUpdated }) {
 
               {tab === 'examen' && (
                 course?.hasExam ? (
-                  <div style={m.moduleCard}>
-                    <p style={{ margin: 0, fontWeight: 600, color: '#16a34a' }}>✅ Este curso ya tiene examen configurado.</p>
-                    <p style={{ ...m.hint, margin: '0.4rem 0 0' }}>
-                      Aquí solo se crea el examen cuando falta. La edición de preguntas existentes se gestiona aparte.
-                    </p>
+                  examLoading || !examEdit ? (
+                    <p style={m.hint}>Cargando examen...</p>
+                  ) : (
+                  <div>
+                    <div style={m.grid2}>
+                      <div>
+                        <label style={m.label}>Nota mínima (%) <span style={m.req}>*</span></label>
+                        <input style={m.input} type="number" min="60" max="100" value={examEdit.passingScore ?? ''} onChange={e => setExF('passingScore', e.target.value)} />
+                      </div>
+                      <div>
+                        <label style={m.label}>Tiempo límite (min, opcional)</label>
+                        <input style={m.input} type="number" min="5" max="300" value={examEdit.timeLimitMinutes ?? ''} onChange={e => setExF('timeLimitMinutes', e.target.value)} />
+                      </div>
+                    </div>
+                    <button onClick={saveExamSettings} disabled={saving} style={m.addModuleBtn}>Guardar configuración</button>
+                    {examEdit.questions.map((q, qi) => (
+                      <div key={q.id} style={m.moduleCard}>
+                        <div style={m.moduleHeader}>
+                          <span style={m.moduleNum}>Pregunta {qi + 1}</span>
+                          <input style={{ ...m.input, flex: 1, marginBottom: 0 }} value={q.text} onChange={e => setExQText(qi, e.target.value)} placeholder="Enunciado" />
+                          <button onClick={() => saveQuestion(qi)} disabled={saving} style={m.addLessonBtn}>Guardar</button>
+                          <button onClick={() => delQuestion(qi)} disabled={saving} style={m.removeBtn}>✕</button>
+                        </div>
+                        {q.options.map((o, oi) => (
+                          <div key={o.id} style={m.lessonRow}>
+                            <button onClick={() => setExCorrect(qi, oi)} title="Marcar correcta" style={{ ...m.correctDot, ...(o.isCorrect ? m.correctDotOn : {}) }}>{o.isCorrect ? '●' : '○'}</button>
+                            <input style={{ ...m.input, flex: 1, marginBottom: 0 }} value={o.text} onChange={e => setExOText(qi, oi, e.target.value)} placeholder={`Opción ${oi + 1}`} />
+                            <button onClick={() => saveOption(qi, oi)} disabled={saving} style={m.addLessonBtn}>Guardar</button>
+                            {q.options.length > 2 && <button onClick={() => delExOption(qi, oi)} disabled={saving} style={m.removeBtn}>✕</button>}
+                          </div>
+                        ))}
+                        <button onClick={() => addExOption(qi)} disabled={saving} style={m.addLessonBtn}>+ Opción</button>
+                      </div>
+                    ))}
+                    <button onClick={addExQuestion} disabled={saving} style={m.addModuleBtn}>+ Agregar pregunta</button>
                   </div>
+                  )
                 ) : (
                   <div>
                     <p style={m.hint}>Este curso <strong>no tiene examen</strong>. Créalo aquí para poder publicarlo.</p>
@@ -573,6 +842,31 @@ function EditCourseModal({ courseId, onClose, onUpdated }) {
                   </div>
                 )
               )}
+
+              {tab === 'estudiantes' && (
+                <div>
+                  <p style={m.hint}>Estudiantes inscritos en este curso:</p>
+                  {studentsLoading ? <p style={m.hint}>Cargando...</p> : (
+                    students.length === 0 ? <p style={{ ...m.hint, color: '#9ca3af' }}>Aún no hay estudiantes inscritos.</p> : (
+                      students.map(st => (
+                        <div key={st.studentId} style={m.moduleCard}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
+                            <div>
+                              <span style={m.moduleNum}>{st.studentName}</span>
+                              <p style={{ ...m.hint, margin: '0.2rem 0 0' }}>{st.studentEmail}</p>
+                            </div>
+                            <div style={{ textAlign: 'right', fontSize: '0.82rem', color: '#374151' }}>
+                              <p style={{ margin: 0 }}>Progreso: <strong>{Math.round(st.progress ?? 0)}%</strong>{st.isCompleted ? ' ✅' : ''}</p>
+                              <p style={{ margin: '0.2rem 0 0' }}>Examen: {st.examPassed ? 'Aprobado' : 'Pendiente'} · Intentos: {st.examAttemptsUsed ?? 0}{st.bestScore != null ? ` · Mejor: ${st.bestScore}` : ''}</p>
+                              <p style={{ margin: '0.2rem 0 0', color: '#9ca3af' }}>Inscrito: {st.enrolledAt ? new Date(st.enrolledAt).toLocaleDateString('es-SV') : '—'}</p>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )
+                  )}
+                </div>
+              )}
             </>
           )}
         </div>
@@ -588,6 +882,251 @@ function EditCourseModal({ courseId, onClose, onUpdated }) {
   );
 }
 
+// ── Panel de Cupones ────────────────────────────────────────────
+function emptyCouponForm() {
+  return { code: '', discountPercent: '', maxUses: '', expiresAt: '' };
+}
+
+function CouponFormModal({ initial, onClose, onSaved }) {
+  const isEdit = !!initial;
+  const [form, setForm] = useState(initial ? {
+    code: initial.code,
+    discountPercent: String(initial.discountPercent),
+    maxUses: String(initial.maxUses),
+    expiresAt: initial.expiresAt ? initial.expiresAt.slice(0, 16) : '',
+  } : emptyCouponForm());
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const save = async () => {
+    setError('');
+    if (!form.code.trim()) { setError('El código es obligatorio.'); return; }
+    const discount = parseInt(form.discountPercent);
+    if (isNaN(discount) || discount < 1 || discount > 100) { setError('El descuento debe estar entre 1 y 100.'); return; }
+    const maxUses = parseInt(form.maxUses);
+    if (isNaN(maxUses) || maxUses < 1) { setError('El máximo de usos debe ser al menos 1.'); return; }
+    if (!form.expiresAt) { setError('Selecciona una fecha de vencimiento.'); return; }
+
+    setLoading(true);
+    try {
+      const payload = {
+        code: form.code.trim().toUpperCase(),
+        discountPercent: discount,
+        maxUses,
+        expiresAt: new Date(form.expiresAt).toISOString(),
+      };
+      if (isEdit) {
+        const updated = await updateCouponApi(initial.id, payload);
+        onSaved(updated, true);
+      } else {
+        const created = await createCouponApi(payload);
+        onSaved(created, false);
+      }
+      onClose();
+    } catch (e) {
+      setError(e.response?.data?.message ?? 'No se pudo guardar el cupón.');
+    } finally { setLoading(false); }
+  };
+
+  return (
+    <div style={m.overlay}>
+      <div style={{ ...m.modal, maxWidth: '420px' }}>
+        <div style={m.header}>
+          <h2 style={m.title}>{isEdit ? 'Editar cupón' : 'Nuevo cupón'}</h2>
+          <button onClick={onClose} style={m.closeBtn}>✕</button>
+        </div>
+        <div style={m.body}>
+          {error && <p style={m.error}>{error}</p>}
+          <label style={m.label}>Código <span style={m.req}>*</span></label>
+          <input style={{ ...m.input, textTransform: 'uppercase' }} value={form.code} onChange={e => set('code', e.target.value)} placeholder="Ej: NDEMY20" />
+
+          <label style={m.label}>Descuento (%) <span style={m.req}>*</span></label>
+          <input style={m.input} type="number" min="1" max="100" value={form.discountPercent} onChange={e => set('discountPercent', e.target.value)} placeholder="20" />
+
+          <label style={m.label}>Máximo de usos <span style={m.req}>*</span></label>
+          <input style={m.input} type="number" min="1" value={form.maxUses} onChange={e => set('maxUses', e.target.value)} placeholder="100" />
+
+          <label style={m.label}>Vence el <span style={m.req}>*</span></label>
+          <input style={m.input} type="datetime-local" value={form.expiresAt} onChange={e => set('expiresAt', e.target.value)} />
+        </div>
+        <div style={m.footer}>
+          <button onClick={onClose} style={m.btnSecondary}>Cancelar</button>
+          <button onClick={save} disabled={loading} style={m.btnPrimary}>{loading ? 'Guardando...' : 'Guardar cupón'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CouponsPanel() {
+  const [coupons, setCoupons] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [toast, setToast] = useState('');
+
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
+
+  const load = () => {
+    setLoading(true);
+    getAllCouponsApi()
+      .then(data => setCoupons(Array.isArray(data) ? data : []))
+      .catch(() => setCoupons([]))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const handleSaved = (coupon, isEdit) => {
+    if (isEdit) {
+      setCoupons(cs => cs.map(c => c.id === coupon.id ? coupon : c));
+      showToast('✅ Cupón actualizado');
+    } else {
+      setCoupons(cs => [coupon, ...cs]);
+      showToast('✅ Cupón creado');
+    }
+  };
+
+  const handleDeactivate = async (coupon) => {
+    try {
+      await deactivateCouponApi(coupon.id);
+      setCoupons(cs => cs.map(c => c.id === coupon.id ? { ...c, isActive: false } : c));
+      showToast('🗑 Cupón desactivado');
+    } catch (e) {
+      showToast('❌ ' + (e.response?.data?.message ?? 'No se pudo desactivar'));
+    }
+  };
+
+  return (
+    <section style={s.section}>
+      {toast && <div style={s.toast}>{toast}</div>}
+      {showForm && (
+        <CouponFormModal
+          initial={editing}
+          onClose={() => { setShowForm(false); setEditing(null); }}
+          onSaved={handleSaved}
+        />
+      )}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+        <h2 style={s.sectionTitle}>Cupones de descuento</h2>
+        <button style={s.createBtn} onClick={() => { setEditing(null); setShowForm(true); }}>+ Nuevo cupón</button>
+      </div>
+
+      {loading ? (
+        <p style={s.empty}>Cargando cupones...</p>
+      ) : coupons.length === 0 ? (
+        <div style={s.emptyState}>
+          <span style={{ fontSize: '2.5rem' }}>🎟️</span>
+          <p>Aún no has creado cupones de descuento.</p>
+          <button style={s.createBtn} onClick={() => { setEditing(null); setShowForm(true); }}>+ Nuevo cupón</button>
+        </div>
+      ) : (
+        <div style={s.table}>
+          <div style={s.tableHeader}>
+            <span style={{ flex: 2 }}>Código</span>
+            <span style={{ flex: 1 }}>Descuento</span>
+            <span style={{ flex: 1 }}>Usos</span>
+            <span style={{ flex: 2 }}>Vence</span>
+            <span style={{ flex: 1 }}>Estado</span>
+            <span style={{ flex: 2 }}>Acciones</span>
+          </div>
+          {coupons.map(c => (
+            <div key={c.id} style={s.tableRow}>
+              <span style={{ flex: 2, fontWeight: 700, color: '#111827' }}>{c.code}</span>
+              <span style={{ flex: 1 }}>{c.discountPercent}%</span>
+              <span style={{ flex: 1 }}>{c.currentUses} / {c.maxUses}</span>
+              <span style={{ flex: 2, fontSize: '0.8rem', color: '#6b7280' }}>{formatDateTime(c.expiresAt)}</span>
+              <span style={{ flex: 1 }}>
+                <Badge text={c.isActive ? 'Activo' : 'Inactivo'} color={c.isActive ? 'green' : 'yellow'} />
+              </span>
+              <div style={{ flex: 2, display: 'flex', gap: '0.5rem' }}>
+                {c.isActive && (
+                  <>
+                    <button style={s.rowBtn} onClick={() => { setEditing(c); setShowForm(true); }}>Editar</button>
+                    <button style={{ ...s.rowBtn, color: '#dc2626', borderColor: '#fecaca' }} onClick={() => handleDeactivate(c)}>Desactivar</button>
+                  </>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function formatDateTime(value) {
+  if (!value) return '—';
+  try {
+    return new Date(value).toLocaleString('es-SV', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  } catch { return value; }
+}
+
+// ── Panel de Reporte de Ingresos ────────────────────────────────
+function RevenuePanel() {
+  const [report, setReport] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    getInstructorRevenueReportApi()
+      .then(setReport)
+      .catch(() => setError('No se pudo cargar el reporte de ingresos.'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <section style={s.section}><p style={s.empty}>Cargando reporte...</p></section>;
+  if (error) return <section style={s.section}><p style={{ color: '#dc2626' }}>{error}</p></section>;
+  if (!report) return null;
+
+  const breakdown = report.courseBreakdown ?? [];
+
+  return (
+    <section style={s.section}>
+      <h2 style={s.sectionTitle}>Reporte de ingresos</h2>
+      <div style={s.statsRow}>
+        <div style={s.statCard}>
+          <span style={s.statIcon}>💰</span>
+          <span style={s.statValue}>${Number(report.totalRevenue ?? 0).toFixed(2)}</span>
+          <span style={s.statLabel}>Ingresos totales</span>
+        </div>
+        <div style={s.statCard}>
+          <span style={s.statIcon}>📅</span>
+          <span style={s.statValue}>${Number(report.currentMonthRevenue ?? 0).toFixed(2)}</span>
+          <span style={s.statLabel}>Este mes</span>
+        </div>
+        <div style={s.statCard}>
+          <span style={s.statIcon}>📚</span>
+          <span style={s.statValue}>{breakdown.length}</span>
+          <span style={s.statLabel}>Cursos con ventas</span>
+        </div>
+      </div>
+
+      <h3 style={{ ...s.sectionTitle, fontSize: '0.95rem', marginTop: '1.5rem' }}>Desglose por curso</h3>
+      {breakdown.length === 0 ? (
+        <p style={s.empty}>Aún no tienes ventas registradas.</p>
+      ) : (
+        <div style={s.table}>
+          <div style={s.tableHeader}>
+            <span style={{ flex: 3 }}>Curso</span>
+            <span style={{ flex: 1 }}>Estudiantes</span>
+            <span style={{ flex: 1 }}>Ingresos</span>
+          </div>
+          {breakdown.map(c => (
+            <div key={c.courseId} style={s.tableRow}>
+              <span style={{ flex: 3, fontWeight: 600, color: '#111827' }}>{c.courseTitle}</span>
+              <span style={{ flex: 1 }}>{c.studentsPaid}</span>
+              <span style={{ flex: 1, fontWeight: 700, color: '#16a34a' }}>${Number(c.revenue ?? 0).toFixed(2)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 // ── Dashboard principal ───────────────────────────────────────
 export default function InstructorDashboard() {
   const { user } = useAuth();
@@ -598,6 +1137,7 @@ export default function InstructorDashboard() {
   const [editingId, setEditingId] = useState(null);
   const [publishing, setPublishing] = useState(null);
   const [toast, setToast] = useState('');
+  const [section, setSection] = useState('cursos'); // cursos | cupones | ingresos
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
 
@@ -673,53 +1213,77 @@ export default function InstructorDashboard() {
         ))}
       </div>
 
-      {/* Tabla de cursos */}
-      <section style={s.section}>
-        <h2 style={s.sectionTitle}>Mis cursos</h2>
-        {loading ? (
-          <p style={s.empty}>Cargando...</p>
-        ) : courses.length === 0 ? (
-          <div style={s.emptyState}>
-            <span style={{ fontSize: '2.5rem' }}>📝</span>
-            <p>Aún no tienes cursos. ¡Crea el primero!</p>
-            <button style={s.createBtn} onClick={() => setShowCreate(true)}>+ Nuevo curso</button>
-          </div>
-        ) : (
-          <div style={s.table}>
-            <div style={s.tableHeader}>
-              <span style={{ flex: 3 }}>Curso</span>
-              <span style={{ flex: 1 }}>Precio</span>
-              <span style={{ flex: 1 }}>Estado</span>
-              <span style={{ flex: 1 }}>Acciones</span>
-            </div>
-            {courses.map(course => (
-              <div key={course.courseId} style={s.tableRow}>
-                <div style={{ flex: 3 }}>
-                  <p style={s.courseTitle}>{course.title}</p>
-                  <p style={s.courseCategory}>{course.category}</p>
-                </div>
-                <span style={{ flex: 1, fontWeight: 600, color: 'var(--text-h)' }}>${course.price}</span>
-                <span style={{ flex: 1 }}>
-                  <Badge text={course.isPublished ? 'Publicado' : 'Borrador'} color={course.isPublished ? 'green' : 'yellow'} />
-                </span>
-                <div style={{ flex: 1, display: 'flex', gap: '0.5rem' }}>
-                  <button onClick={() => navigate(`/courses/${course.courseId}`)} style={s.rowBtn}>Ver</button>
-                  <button onClick={() => setEditingId(course.courseId)} style={s.rowBtn}>Editar</button>
-                  {!course.isPublished && (
-                    <button
-                      onClick={() => handlePublish(course.courseId)}
-                      disabled={publishing === course.courseId}
-                      style={{ ...s.rowBtn, ...s.rowBtnPublish }}
-                    >
-                      {publishing === course.courseId ? '...' : 'Publicar'}
-                    </button>
-                  )}
-                </div>
+      {/* Navegación de secciones */}
+      <div style={s.sectionTabs}>
+        {[
+          { key: 'cursos', label: '📚 Mis cursos' },
+          { key: 'cupones', label: '🎟️ Cupones' },
+          { key: 'ingresos', label: '💰 Ingresos' },
+        ].map(t => (
+          <button
+            key={t.key}
+            onClick={() => setSection(t.key)}
+            style={{ ...s.sectionTab, ...(section === t.key ? s.sectionTabActive : {}) }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {section === 'cursos' && (
+        <>
+          {/* Tabla de cursos */}
+          <section style={s.section}>
+            <h2 style={s.sectionTitle}>Mis cursos</h2>
+            {loading ? (
+              <p style={s.empty}>Cargando...</p>
+            ) : courses.length === 0 ? (
+              <div style={s.emptyState}>
+                <span style={{ fontSize: '2.5rem' }}>📝</span>
+                <p>Aún no tienes cursos. ¡Crea el primero!</p>
+                <button style={s.createBtn} onClick={() => setShowCreate(true)}>+ Nuevo curso</button>
               </div>
-            ))}
-          </div>
-        )}
-      </section>
+            ) : (
+              <div style={s.table}>
+                <div style={s.tableHeader}>
+                  <span style={{ flex: 3 }}>Curso</span>
+                  <span style={{ flex: 1 }}>Precio</span>
+                  <span style={{ flex: 1 }}>Estado</span>
+                  <span style={{ flex: 1 }}>Acciones</span>
+                </div>
+                {courses.map(course => (
+                  <div key={course.courseId} style={s.tableRow}>
+                    <div style={{ flex: 3 }}>
+                      <p style={s.courseTitle}>{course.title}</p>
+                      <p style={s.courseCategory}>{course.category}</p>
+                    </div>
+                    <span style={{ flex: 1, fontWeight: 600, color: 'var(--text-h)' }}>${course.price}</span>
+                    <span style={{ flex: 1 }}>
+                      <Badge text={course.isPublished ? 'Publicado' : 'Borrador'} color={course.isPublished ? 'green' : 'yellow'} />
+                    </span>
+                    <div style={{ flex: 1, display: 'flex', gap: '0.5rem' }}>
+                      <button onClick={() => navigate(`/courses/${course.courseId}`)} style={s.rowBtn}>Ver</button>
+                      <button onClick={() => setEditingId(course.courseId)} style={s.rowBtn}>Editar</button>
+                      {!course.isPublished && (
+                        <button
+                          onClick={() => handlePublish(course.courseId)}
+                          disabled={publishing === course.courseId}
+                          style={{ ...s.rowBtn, ...s.rowBtnPublish }}
+                        >
+                          {publishing === course.courseId ? '...' : 'Publicar'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </>
+      )}
+
+      {section === 'cupones' && <CouponsPanel />}
+      {section === 'ingresos' && <RevenuePanel />}
     </div>
   );
 }
@@ -786,6 +1350,19 @@ const s = {
   statLabel: { fontSize: '0.78rem', color: '#6b7280' },
 
   sectionTitle: { fontSize: '1.1rem', fontWeight: 700, color: '#111827' },
+
+  sectionTabs: { display: 'flex', gap: '0.5rem', marginBottom: '1.5rem', borderBottom: '1px solid #e5e7eb', paddingBottom: '0.5rem' },
+  sectionTab: {
+    padding: '0.5rem 1rem',
+    border: 'none',
+    borderRadius: '8px',
+    background: 'transparent',
+    color: '#6b7280',
+    fontSize: '0.875rem',
+    fontWeight: 600,
+    cursor: 'pointer',
+  },
+  sectionTabActive: { background: 'rgba(99,102,241,0.12)', color: '#6366f1' },
 
   emptyState: {
     display: 'flex',

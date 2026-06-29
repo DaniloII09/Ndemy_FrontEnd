@@ -14,6 +14,7 @@ import MyCourses from '../pages/MyCourses';
 import ProfilePage from '../pages/ProfilePage';
 import CertificatesPage from '../pages/CertificatesPage';
 import ExamPage from '../pages/ExamPage';
+import WishlistPage from '../pages/WishlistPage';
 
 function AuthGate({ children }) {
   const { isLoading } = useAuth();
@@ -76,6 +77,11 @@ export default function AppRouter() {
           <Route path="/certificates" element={
             <PrivateRoute>
               <RoleRoute role="STUDENT"><CertificatesPage /></RoleRoute>
+            </PrivateRoute>
+          } />
+          <Route path="/wishlist" element={
+            <PrivateRoute>
+              <RoleRoute role="STUDENT"><WishlistPage /></RoleRoute>
             </PrivateRoute>
           } />
           <Route path="/profile" element={

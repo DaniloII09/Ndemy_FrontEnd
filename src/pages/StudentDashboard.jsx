@@ -8,6 +8,7 @@ const QUICK_LINKS = [
   { label: 'Mis cursos',           icon: '📖', to: '/my-courses', desc: 'Continúa donde dejaste' },
   { label: 'Mi perfil',            icon: '👤', to: '/profile',    desc: 'Edita tu información' },
   { label: 'Mis certificados',     icon: '🏅', to: '/certificates', desc: 'Descarga tus logros' },
+  { label: 'Lista de deseos',      icon: '🤍', to: '/wishlist', desc: 'Cursos guardados para después' },
 ];
 
 export default function StudentDashboard() {

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getCourseDetailApi } from '../api/courses';
 import { getCourseReviewsApi, createReviewApi, updateReviewApi, deleteReviewApi } from '../api/reviews';
+import { getWishlistApi, addToWishlistApi, removeFromWishlistApi } from '../api/wishlist';
 import { useAuth } from '../context/AuthContext';
 
 function Stars({ value = 0, size = '1rem', onSelect = null }) {
@@ -85,6 +86,10 @@ export default function CourseDetailPage() {
   const [rError, setRError] = useState('');
   const [editingReview, setEditingReview] = useState(false);
 
+  // Wishlist
+  const [inWishlist, setInWishlist] = useState(false);
+  const [wishlistLoading, setWishlistLoading] = useState(false);
+
   const loadReviews = () => {
     getCourseReviewsApi(id)
       .then(data => setReviews(Array.isArray(data) ? data : []))
@@ -106,6 +111,37 @@ export default function CourseDetailPage() {
     fetchDetail();
     loadReviews();
   }, [id]);
+
+  // Verifica si el curso ya está en la wishlist del estudiante autenticado
+  useEffect(() => {
+    if (!isAuthenticated || user?.role !== 'STUDENT') return;
+    let active = true;
+    getWishlistApi()
+      .then(list => {
+        if (!active) return;
+        setInWishlist(Array.isArray(list) && list.some(c => c.id === id));
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [id, isAuthenticated, user?.role]);
+
+  const toggleWishlist = async () => {
+    setWishlistLoading(true);
+    try {
+      if (inWishlist) {
+        await removeFromWishlistApi(id);
+        setInWishlist(false);
+      } else {
+        await addToWishlistApi(id);
+        setInWishlist(true);
+      }
+    } catch {
+      // si el backend dice que ya estaba o no estaba, sincronizamos el estado visual igual
+      setInWishlist(v => !v);
+    } finally {
+      setWishlistLoading(false);
+    }
+  };
 
   const handleLessonClick = (lesson) => {
     navigate(`/courses/${id}/player`, { state: { lesson, courseTitle: course.title } });
@@ -318,6 +354,16 @@ export default function CourseDetailPage() {
                 {getButtonLabel()}
               </button>
 
+              {isAuthenticated && user?.role === 'STUDENT' && !isEnrolled && !isOwner && (
+                <button
+                  onClick={toggleWishlist}
+                  disabled={wishlistLoading}
+                  style={{ ...styles.wishlistButton, ...(inWishlist ? styles.wishlistButtonActive : {}) }}
+                >
+                  {inWishlist ? '💜 Guardado en tu lista de deseos' : '🤍 Guardar en lista de deseos'}
+                </button>
+              )}
+
               {isEnrolled && !isOwner && (
                 <p style={styles.enrolledBadge}>✅ Ya estás inscrito en este curso</p>
               )}
@@ -368,6 +414,8 @@ const styles = {
   priceRow: { marginBottom: '0.75rem' },
   price: { fontSize: '1.75rem', fontWeight: 700, color: '#1a1a1a' },
   actionButton: { width: '100%', padding: '0.85rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '1rem', fontWeight: 600, cursor: 'pointer', marginBottom: '1rem' },
+  wishlistButton: { width: '100%', padding: '0.7rem', background: '#fff', color: '#555', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer', marginBottom: '1rem' },
+  wishlistButtonActive: { background: '#faf5ff', color: '#9333ea', border: '1px solid #e9d5ff' },
   enrolledBadge: { fontSize: '0.85rem', color: '#16a34a', textAlign: 'center', marginBottom: '1rem', fontWeight: 500 },
   ownerBox: { background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '0.75rem 0.9rem', marginBottom: '1rem' },
   ownerTitle: { fontSize: '0.85rem', fontWeight: 700, color: '#1a1a1a', margin: '0 0 0.4rem' },

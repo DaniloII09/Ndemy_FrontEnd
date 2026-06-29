@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { getAllUsersApi, lockUserApi, unlockUserApi, deactivateUserApi, updateUserApi } from '../api/admin';
+import { getAdminOverviewApi } from '../api/reports';
+import { getCoursesApi, deleteCourseApi } from '../api/courses';
 
 const ROLE_LABELS = { ADMIN: 'Admin', INSTRUCTOR: 'Instructor', STUDENT: 'Estudiante' };
 const ROLE_COLORS = {
@@ -50,25 +52,39 @@ const ov = {
   confirm: { padding: '0.55rem 1.25rem', border: 'none', borderRadius: '8px', color: '#fff', cursor: 'pointer', fontWeight: 700 },
 };
 
-// ── Modal cambio de rol ───────────────────────────────────────
-function RoleModal({ user, onClose, onSaved }) {
-  const [role, setRole] = useState(user.role);
+// ── Modal editar usuario (nombre, email, rol) ─────────────────
+function EditUserModal({ user, onClose, onSaved }) {
+  const [form, setForm] = useState({ name: user.name, email: user.email, role: user.role });
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const save = async () => {
-    setLoading(true);
+    if (!form.name.trim()) { setError('El nombre es obligatorio.'); return; }
+    if (!form.email.trim()) { setError('El email es obligatorio.'); return; }
+    setError(''); setLoading(true);
     try {
-      await updateUserApi(user.id, { role });
-      onSaved({ ...user, role });
+      await updateUserApi(user.id, { name: form.name, email: form.email, role: form.role });
+      onSaved({ ...user, name: form.name, email: form.email, role: form.role });
       onClose();
-    } catch { /* silent */ } finally { setLoading(false); }
+    } catch (e) {
+      setError(e.response?.data?.message ?? 'No se pudo actualizar el usuario.');
+    } finally { setLoading(false); }
   };
+
+  const inp = { width: '100%', padding: '0.6rem 0.75rem', border: '1px solid var(--border)', borderRadius: '8px', marginBottom: '1rem', fontSize: '0.9rem', background: 'var(--bg)', color: 'var(--text-h)' };
 
   return (
     <div style={ov.overlay}>
       <div style={ov.box}>
-        <h3 style={{ ...ov.title, color: 'var(--text-h)' }}>Cambiar rol — {user.name}</h3>
-        <select value={role} onChange={e => setRole(e.target.value)} style={{ width: '100%', padding: '0.6rem 0.75rem', border: '1px solid var(--border)', borderRadius: '8px', marginBottom: '1.5rem', fontSize: '0.9rem', background: 'var(--bg)', color: 'var(--text-h)' }}>
+        <h3 style={{ ...ov.title, color: 'var(--text-h)' }}>Editar usuario</h3>
+        {error && <p style={{ color: '#dc2626', fontSize: '0.82rem', margin: '0 0 0.75rem' }}>{error}</p>}
+        <label style={lbl}>Nombre</label>
+        <input style={inp} value={form.name} onChange={e => set('name', e.target.value)} />
+        <label style={lbl}>Email</label>
+        <input style={inp} value={form.email} onChange={e => set('email', e.target.value)} />
+        <label style={lbl}>Rol</label>
+        <select value={form.role} onChange={e => set('role', e.target.value)} style={inp}>
           <option value="STUDENT">Estudiante</option>
           <option value="INSTRUCTOR">Instructor</option>
           <option value="ADMIN">Administrador</option>
@@ -77,6 +93,147 @@ function RoleModal({ user, onClose, onSaved }) {
           <button onClick={onClose} style={ov.cancel}>Cancelar</button>
           <button onClick={save} disabled={loading} style={{ ...ov.confirm, background: 'var(--accent)' }}>{loading ? '...' : 'Guardar'}</button>
         </div>
+      </div>
+    </div>
+  );
+}
+const lbl = { display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text)', margin: '0 0 0.3rem' };
+
+// ── Panel de reporte general de la plataforma ───────────────────
+function OverviewPanel() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    getAdminOverviewApi()
+      .then(setData)
+      .catch(() => setError('No se pudo cargar el reporte general.'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <p style={{ color: 'var(--text)' }}>Cargando reporte...</p>;
+  if (error) return <p style={{ color: '#dc2626' }}>{error}</p>;
+  if (!data) return null;
+
+  const rows = [
+    { icon: '🎓', label: 'Estudiantes', value: data.totalStudents },
+    { icon: '👨‍🏫', label: 'Instructores', value: data.totalInstructors },
+    { icon: '🛡️', label: 'Administradores', value: data.totalAdmins },
+    { icon: '📚', label: 'Cursos publicados', value: data.totalPublishedCourses },
+    { icon: '✅', label: 'Inscripciones activas', value: data.totalActiveEnrollments },
+    { icon: '💰', label: 'Ingresos de la plataforma', value: `$${Number(data.totalPlatformRevenue ?? 0).toFixed(2)}` },
+  ];
+
+  return (
+    <div>
+      <div style={{ ...s.statsRow, gridTemplateColumns: 'repeat(3, 1fr)' }}>
+        {rows.map(r => (
+          <div key={r.label} style={s.statCard}>
+            <span style={s.statIcon}>{r.icon}</span>
+            <span style={{ ...s.statValue, color: 'var(--text-h)' }}>{r.value}</span>
+            <span style={s.statLabel}>{r.label}</span>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginTop: '1.75rem' }}>
+        <RankList title="🏆 Cursos con más inscripciones" items={data.topCoursesByEnrollments} valueKey="enrollments" valueSuffix=" inscritos" />
+        <RankList title="💵 Cursos con más ingresos" items={data.topCoursesByRevenue} valueKey="revenue" valuePrefix="$" />
+      </div>
+    </div>
+  );
+}
+
+function RankList({ title, items, valueKey, valuePrefix = '', valueSuffix = '' }) {
+  const list = Array.isArray(items) ? items : [];
+  return (
+    <div style={s.table}>
+      <div style={s.tableHead}><span>{title}</span></div>
+      {list.length === 0 ? (
+        <p style={{ padding: '1.25rem', color: 'var(--text)', fontSize: '0.875rem' }}>Sin datos aún.</p>
+      ) : (
+        list.map((c, i) => (
+          <div key={c.courseId} style={{ ...s.tableRow, justifyContent: 'space-between' }}>
+            <div>
+              <p style={{ margin: 0, fontWeight: 600, color: 'var(--text-h)', fontSize: '0.875rem' }}>{i + 1}. {c.courseTitle}</p>
+              <p style={{ margin: '0.1rem 0 0', fontSize: '0.78rem', color: 'var(--text)' }}>{c.instructorName}</p>
+            </div>
+            <span style={{ fontWeight: 700, color: 'var(--accent)', whiteSpace: 'nowrap' }}>
+              {valuePrefix}{Number(c[valueKey]).toLocaleString()}{valueSuffix}
+            </span>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+// ── Panel de cursos (admin puede eliminar) ────────────────────
+function CoursesPanel({ showToast }) {
+  const [courses, setCourses] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [confirm, setConfirm] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const load = async () => {
+    try {
+      const page = await getCoursesApi({ size: 100 });
+      const list = page?.content ?? page ?? [];
+      setCourses(Array.isArray(list) ? list : []);
+    } catch {
+      setCourses([]);
+    } finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const handleDelete = async (c) => {
+    setDeleting(true);
+    try {
+      await deleteCourseApi(c.id);
+      setCourses(cs => cs.filter(x => x.id !== c.id));
+      showToast(`🗑 Curso "${c.title}" eliminado`);
+    } catch (e) {
+      showToast('❌ ' + (e.response?.data?.message ?? 'No se pudo eliminar'));
+    } finally { setDeleting(false); setConfirm(null); }
+  };
+
+  if (loading) return <p style={{ color: 'var(--text)' }}>Cargando cursos...</p>;
+
+  return (
+    <div>
+      {confirm && (
+        <ConfirmModal
+          title="Eliminar curso"
+          message={`¿Seguro que quieres eliminar "${confirm.title}"? Esta acción no se puede deshacer.`}
+          confirmLabel={deleting ? 'Eliminando...' : 'Eliminar'}
+          danger
+          onConfirm={() => handleDelete(confirm)}
+          onClose={() => setConfirm(null)}
+        />
+      )}
+      <p style={{ fontSize: '0.82rem', color: 'var(--text)', margin: '0 0 1rem' }}>
+        Se listan los cursos publicados de la plataforma. Como administrador solo puedes eliminarlos.
+      </p>
+      <div style={s.table}>
+        <div style={s.tableHead}>
+          <span style={{ flex: 3 }}>Curso</span>
+          <span style={{ flex: 1 }}>Categoría</span>
+          <span style={{ flex: 1 }}>Precio</span>
+          <span style={{ flex: 1 }}>Acción</span>
+        </div>
+        {courses.length === 0 && <p style={{ padding: '1.5rem', color: 'var(--text)', fontSize: '0.875rem' }}>No hay cursos publicados.</p>}
+        {courses.map(c => (
+          <div key={c.id} style={s.tableRow}>
+            <span style={{ flex: 3, fontWeight: 600, color: 'var(--text-h)', fontSize: '0.875rem' }}>{c.title}</span>
+            <span style={{ flex: 1, fontSize: '0.82rem', color: 'var(--text)' }}>{c.category ?? '—'}</span>
+            <span style={{ flex: 1, fontSize: '0.82rem', color: 'var(--text)' }}>${Number(c.price ?? 0).toFixed(2)}</span>
+            <span style={{ flex: 1 }}>
+              <button onClick={() => setConfirm(c)} style={{ ...s.actionBtn, ...s.btnRed }}>Eliminar</button>
+            </span>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -93,6 +250,7 @@ export default function AdminDashboard() {
   const [confirm, setConfirm]   = useState(null);    // { type, user }
   const [roleModal, setRoleModal] = useState(null);
   const [toast, setToast]       = useState('');
+  const [tab, setTab]           = useState('usuarios'); // usuarios | reporte
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3500); };
 
@@ -183,10 +341,10 @@ export default function AdminDashboard() {
         />
       )}
       {roleModal && (
-        <RoleModal
+        <EditUserModal
           user={roleModal}
           onClose={() => setRoleModal(null)}
-          onSaved={(updated) => { updateLocal(updated.id, { role: updated.role }); showToast(`✅ Rol actualizado`); }}
+          onSaved={(updated) => { updateLocal(updated.id, { name: updated.name, email: updated.email, role: updated.role }); showToast(`✅ Usuario actualizado`); }}
         />
       )}
 
@@ -200,91 +358,104 @@ export default function AdminDashboard() {
         <span style={{ fontSize: '3.5rem' }}>🛡️</span>
       </section>
 
-      {/* Stats */}
-      <div style={s.statsRow}>
-        {[
-          { label: 'Total usuarios', value: stats.total, icon: '👥', color: '' },
-          { label: 'Activos', value: stats.active, icon: '✅', color: '#16a34a' },
-          { label: 'Baneados', value: stats.banned, icon: '🔒', color: '#ca8a04' },
-          { label: 'Desactivados', value: stats.inactive, icon: '❌', color: '#dc2626' },
-        ].map(st => (
-          <div key={st.label} style={s.statCard}>
-            <span style={s.statIcon}>{st.icon}</span>
-            <span style={{ ...s.statValue, color: st.color || 'var(--text-h)' }}>{st.value}</span>
-            <span style={s.statLabel}>{st.label}</span>
-          </div>
-        ))}
+      {/* Tabs */}
+      <div style={s.tabsRow}>
+        <button onClick={() => setTab('usuarios')} style={{ ...s.tabBtn, ...(tab === 'usuarios' ? s.tabBtnActive : {}) }}>👥 Usuarios</button>
+        <button onClick={() => setTab('cursos')} style={{ ...s.tabBtn, ...(tab === 'cursos' ? s.tabBtnActive : {}) }}>📚 Cursos</button>
+        <button onClick={() => setTab('reporte')} style={{ ...s.tabBtn, ...(tab === 'reporte' ? s.tabBtnActive : {}) }}>📊 Reporte general</button>
       </div>
 
-      {/* Filtros */}
-      <div style={s.toolbar}>
-        <input
-          style={s.search}
-          placeholder="Buscar por nombre o email..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
-        <div style={s.filterRow}>
-          {['all', 'active', 'banned', 'inactive'].map(f => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              style={{ ...s.filterBtn, ...(filter === f ? s.filterBtnActive : {}) }}
-            >
-              {{ all: 'Todos', active: 'Activos', banned: 'Baneados', inactive: 'Inactivos' }[f]}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Tabla */}
-      {loading ? (
-        <p style={{ color: 'var(--text)' }}>Cargando usuarios...</p>
-      ) : (
-        <div style={s.table}>
-          <div style={s.tableHead}>
-            <span style={{ flex: 3 }}>Usuario</span>
-            <span style={{ flex: 1 }}>Rol</span>
-            <span style={{ flex: 1 }}>Estado</span>
-            <span style={{ flex: 2 }}>Acciones</span>
+      {tab === 'reporte' && <OverviewPanel />}
+      {tab === 'cursos' && <CoursesPanel showToast={showToast} />}
+      {tab === 'usuarios' && (
+        <>
+          {/* Stats */}
+          <div style={s.statsRow}>
+            {[
+              { label: 'Total usuarios', value: stats.total, icon: '👥', color: '' },
+              { label: 'Activos', value: stats.active, icon: '✅', color: '#16a34a' },
+              { label: 'Baneados', value: stats.banned, icon: '🔒', color: '#ca8a04' },
+              { label: 'Desactivados', value: stats.inactive, icon: '❌', color: '#dc2626' },
+            ].map(st => (
+              <div key={st.label} style={s.statCard}>
+                <span style={s.statIcon}>{st.icon}</span>
+                <span style={{ ...s.statValue, color: st.color || 'var(--text-h)' }}>{st.value}</span>
+                <span style={s.statLabel}>{st.label}</span>
+              </div>
+            ))}
           </div>
-          {filtered.length === 0 && <p style={{ padding: '1.5rem', color: 'var(--text)', fontSize: '0.875rem' }}>Sin resultados.</p>}
-          {filtered.map(u => (
-            <div key={u.id} style={{ ...s.tableRow, ...(u.isLocked ? s.rowBanned : {}) }}>
-              {/* Info */}
-              <div style={{ flex: 3 }}>
-                <div style={s.userInfo}>
-                  <div style={s.avatar}>{u.name.charAt(0).toUpperCase()}</div>
-                  <div>
-                    <p style={s.userName}>
-                      {u.name}
-                      {u.id === me?.id && <span style={s.meTag}> (tú)</span>}
-                    </p>
-                    <p style={s.userEmail}>{u.email}</p>
+
+          {/* Filtros */}
+          <div style={s.toolbar}>
+            <input
+              style={s.search}
+              placeholder="Buscar por nombre o email..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+            <div style={s.filterRow}>
+              {['all', 'active', 'banned', 'inactive'].map(f => (
+                <button
+                  key={f}
+                  onClick={() => setFilter(f)}
+                  style={{ ...s.filterBtn, ...(filter === f ? s.filterBtnActive : {}) }}
+                >
+                  {{ all: 'Todos', active: 'Activos', banned: 'Baneados', inactive: 'Inactivos' }[f]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Tabla */}
+          {loading ? (
+            <p style={{ color: 'var(--text)' }}>Cargando usuarios...</p>
+          ) : (
+            <div style={s.table}>
+              <div style={s.tableHead}>
+                <span style={{ flex: 3 }}>Usuario</span>
+                <span style={{ flex: 1 }}>Rol</span>
+                <span style={{ flex: 1 }}>Estado</span>
+                <span style={{ flex: 2 }}>Acciones</span>
+              </div>
+              {filtered.length === 0 && <p style={{ padding: '1.5rem', color: 'var(--text)', fontSize: '0.875rem' }}>Sin resultados.</p>}
+              {filtered.map(u => (
+                <div key={u.id} style={{ ...s.tableRow, ...(u.isLocked ? s.rowBanned : {}) }}>
+                  {/* Info */}
+                  <div style={{ flex: 3 }}>
+                    <div style={s.userInfo}>
+                      <div style={s.avatar}>{u.name.charAt(0).toUpperCase()}</div>
+                      <div>
+                        <p style={s.userName}>
+                          {u.name}
+                          {u.id === me?.id && <span style={s.meTag}> (tú)</span>}
+                        </p>
+                        <p style={s.userEmail}>{u.email}</p>
+                      </div>
+                    </div>
+                  </div>
+                  <span style={{ flex: 1 }}><RoleBadge role={u.role} /></span>
+                  <span style={{ flex: 1 }}><StatusBadge isLocked={u.isLocked} isActive={u.isActive} /></span>
+
+                  {/* Acciones */}
+                  <div style={{ flex: 2, display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                    {u.id !== me?.id && u.isActive && (
+                      <>
+                        <button onClick={() => setRoleModal(u)} style={s.actionBtn}>Editar</button>
+                        {u.isLocked
+                          ? <button onClick={() => setConfirm({ type: 'unban', user: u })} style={{ ...s.actionBtn, ...s.btnGreen }}>Desbanear</button>
+                          : <button onClick={() => setConfirm({ type: 'ban', user: u })} style={{ ...s.actionBtn, ...s.btnOrange }}>Banear</button>
+                        }
+                        <button onClick={() => setConfirm({ type: 'deactivate', user: u })} style={{ ...s.actionBtn, ...s.btnRed }}>Desactivar</button>
+                      </>
+                    )}
+                    {u.id === me?.id && <span style={{ fontSize: '0.78rem', color: 'var(--text)' }}>Tu cuenta</span>}
+                    {!u.isActive && <span style={{ fontSize: '0.78rem', color: '#dc2626' }}>Desactivado</span>}
                   </div>
                 </div>
-              </div>
-              <span style={{ flex: 1 }}><RoleBadge role={u.role} /></span>
-              <span style={{ flex: 1 }}><StatusBadge isLocked={u.isLocked} isActive={u.isActive} /></span>
-
-              {/* Acciones */}
-              <div style={{ flex: 2, display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                {u.id !== me?.id && u.isActive && (
-                  <>
-                    <button onClick={() => setRoleModal(u)} style={s.actionBtn}>Rol</button>
-                    {u.isLocked
-                      ? <button onClick={() => setConfirm({ type: 'unban', user: u })} style={{ ...s.actionBtn, ...s.btnGreen }}>Desbanear</button>
-                      : <button onClick={() => setConfirm({ type: 'ban', user: u })} style={{ ...s.actionBtn, ...s.btnOrange }}>Banear</button>
-                    }
-                    <button onClick={() => setConfirm({ type: 'deactivate', user: u })} style={{ ...s.actionBtn, ...s.btnRed }}>Desactivar</button>
-                  </>
-                )}
-                {u.id === me?.id && <span style={{ fontSize: '0.78rem', color: 'var(--text)' }}>Tu cuenta</span>}
-                {!u.isActive && <span style={{ fontSize: '0.78rem', color: '#dc2626' }}>Desactivado</span>}
-              </div>
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -292,6 +463,9 @@ export default function AdminDashboard() {
 
 const s = {
   page: { maxWidth: '1100px', margin: '0 auto', padding: '2rem 1.5rem 4rem', fontFamily: 'var(--sans)', textAlign: 'left' },
+  tabsRow: { display: 'flex', gap: '0.5rem', marginBottom: '1.5rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' },
+  tabBtn: { padding: '0.5rem 1rem', border: 'none', borderRadius: '8px', background: 'transparent', color: 'var(--text)', fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer' },
+  tabBtnActive: { background: 'rgba(220,38,38,0.1)', color: '#dc2626' },
   toast: { position: 'fixed', bottom: '1.5rem', right: '1.5rem', background: '#1a1a1a', color: '#fff', padding: '0.75rem 1.25rem', borderRadius: '10px', fontSize: '0.875rem', zIndex: 999, boxShadow: '0 8px 24px rgba(0,0,0,0.2)' },
   hero: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(135deg, rgba(220,38,38,0.08) 0%, transparent 70%)', border: '1px solid rgba(220,38,38,0.2)', borderRadius: '20px', padding: '2rem 2.5rem', marginBottom: '2rem' },
   heroSub: { fontSize: '0.78rem', color: '#dc2626', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 0.2rem' },
