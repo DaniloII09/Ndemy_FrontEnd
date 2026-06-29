@@ -10,6 +10,10 @@ import StudentDashboard from '../pages/StudentDashboard';
 import CheckoutPage from '../pages/CheckoutPage';
 import InstructorDashboard from '../pages/InstructorDashboard';
 import AdminDashboard from '../pages/AdminDashboard';
+import MyCourses from '../pages/MyCourses';
+import ProfilePage from '../pages/ProfilePage';
+import CertificatesPage from '../pages/CertificatesPage';
+import ExamPage from '../pages/ExamPage';
 
 function AuthGate({ children }) {
   const { isLoading } = useAuth();
@@ -59,8 +63,24 @@ export default function AppRouter() {
           <Route path="/courses/:id/checkout" element={
             <PrivateRoute><CheckoutPage /></PrivateRoute>
           } />
+          <Route path="/courses/:id/exam" element={
+            <PrivateRoute><ExamPage /></PrivateRoute>
+          } />
 
           {/* Estudiante */}
+          <Route path="/my-courses" element={
+            <PrivateRoute>
+              <RoleRoute role="STUDENT"><MyCourses /></RoleRoute>
+            </PrivateRoute>
+          } />
+          <Route path="/certificates" element={
+            <PrivateRoute>
+              <RoleRoute role="STUDENT"><CertificatesPage /></RoleRoute>
+            </PrivateRoute>
+          } />
+          <Route path="/profile" element={
+            <PrivateRoute><ProfilePage /></PrivateRoute>
+          } />
           <Route path="/student/dashboard" element={
             <PrivateRoute>
               <RoleRoute role="STUDENT">

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getCourseDetailApi, checkoutApi } from '../api/courses';
+import { getCourseDetailApi, checkoutApi, previewCouponApi } from '../api/courses';
 
 export default function CheckoutPage() {
   const { id } = useParams();
@@ -12,6 +12,11 @@ export default function CheckoutPage() {
   const [isPaying, setIsPaying]   = useState(false);
   const [error, setError]         = useState('');
   const [success, setSuccess]     = useState(false);
+
+  // Cupón aplicado (preview)
+  const [discount, setDiscount]       = useState(null); // { code, discountPercent, originalPrice, discountAmount, finalPrice }
+  const [couponError, setCouponError] = useState('');
+  const [isApplying, setIsApplying]   = useState(false);
 
   useEffect(() => {
     getCourseDetailApi(id)
@@ -27,11 +32,33 @@ export default function CheckoutPage() {
       .finally(() => setIsLoading(false));
   }, [id]);
 
+  const handleApplyCoupon = async () => {
+    const code = coupon.trim();
+    if (!code) return;
+    setCouponError('');
+    setIsApplying(true);
+    try {
+      const preview = await previewCouponApi(id, code);
+      setDiscount(preview);
+    } catch (err) {
+      setDiscount(null);
+      setCouponError(err.response?.data?.message ?? 'Cupón inválido.');
+    } finally {
+      setIsApplying(false);
+    }
+  };
+
+  const removeCoupon = () => {
+    setDiscount(null);
+    setCoupon('');
+    setCouponError('');
+  };
+
   const handlePay = async () => {
     setError('');
     setIsPaying(true);
     try {
-      await checkoutApi(id, coupon || null);
+      await checkoutApi(id, discount ? discount.code : (coupon.trim() || null));
       setSuccess(true);
       // Espera 2 s y redirige al detalle (ya con acceso)
       setTimeout(() => navigate(`/courses/${id}`), 2000);
@@ -78,11 +105,36 @@ export default function CheckoutPage() {
               <input
                 type="text"
                 value={coupon}
-                onChange={e => setCoupon(e.target.value.toUpperCase())}
+                onChange={e => {
+                  setCoupon(e.target.value.toUpperCase());
+                  if (discount) setDiscount(null);
+                  if (couponError) setCouponError('');
+                }}
                 placeholder="Ej: NDEMY20"
                 style={s.input}
+                disabled={!!discount}
               />
+              {discount ? (
+                <button type="button" onClick={removeCoupon} style={s.couponRemoveBtn}>
+                  Quitar
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleApplyCoupon}
+                  disabled={isApplying || !coupon.trim()}
+                  style={{ ...s.couponApplyBtn, ...(isApplying || !coupon.trim() ? s.couponApplyDisabled : {}) }}
+                >
+                  {isApplying ? '...' : 'Aplicar'}
+                </button>
+              )}
             </div>
+            {couponError && <p style={s.couponErrorMsg}>{couponError}</p>}
+            {discount && (
+              <p style={s.couponOkMsg}>
+                ✅ Cupón {discount.code} aplicado — {discount.discountPercent}% de descuento
+              </p>
+            )}
           </div>
 
           {/* Datos de tarjeta — decorativos, el backend no los necesita */}
@@ -113,7 +165,7 @@ export default function CheckoutPage() {
             disabled={isPaying}
             style={{ ...s.payBtn, ...(isPaying ? s.payBtnDisabled : {}) }}
           >
-            {isPaying ? 'Procesando...' : `Pagar $${course.price}`}
+            {isPaying ? 'Procesando...' : `Pagar $${discount ? discount.finalPrice : course.price}`}
           </button>
         </div>
 
@@ -130,13 +182,19 @@ export default function CheckoutPage() {
 
               <div style={s.priceRow}>
                 <span style={s.priceLabel}>Precio</span>
-                <span style={s.priceValue}>${course.price}</span>
+                <span style={{ ...s.priceValue, ...(discount ? s.priceStruck : {}) }}>${course.price}</span>
               </div>
-              {coupon && (
-                <div style={s.priceRow}>
-                  <span style={s.couponLabel}>Cupón: {coupon}</span>
-                  <span style={s.couponValue}>— se aplicará al pagar</span>
-                </div>
+              {discount && (
+                <>
+                  <div style={s.priceRow}>
+                    <span style={s.couponLabel}>Cupón {discount.code} (-{discount.discountPercent}%)</span>
+                    <span style={s.discountValue}>− ${discount.discountAmount}</span>
+                  </div>
+                  <div style={s.priceRow}>
+                    <span style={s.totalLabel}>Total</span>
+                    <span style={s.priceValue}>${discount.finalPrice}</span>
+                  </div>
+                </>
               )}
 
               <hr style={s.divider} />
@@ -272,6 +330,34 @@ const s = {
   priceValue: { fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-h)' },
   couponLabel: { fontSize: '0.8rem', color: 'var(--accent)', fontWeight: 500 },
   couponValue: { fontSize: '0.78rem', color: 'var(--text)' },
+  couponApplyBtn: {
+    padding: '0 1.1rem',
+    background: 'var(--accent, #aa3bff)',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '8px',
+    fontSize: '0.85rem',
+    fontWeight: 700,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  },
+  couponApplyDisabled: { opacity: 0.5, cursor: 'not-allowed' },
+  couponRemoveBtn: {
+    padding: '0 1.1rem',
+    background: 'transparent',
+    color: 'var(--text)',
+    border: '1px solid var(--border)',
+    borderRadius: '8px',
+    fontSize: '0.85rem',
+    fontWeight: 600,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  },
+  couponErrorMsg: { fontSize: '0.8rem', color: '#dc2626', margin: '0.45rem 0 0' },
+  couponOkMsg: { fontSize: '0.8rem', color: '#16a34a', fontWeight: 500, margin: '0.45rem 0 0' },
+  priceStruck: { textDecoration: 'line-through', color: 'var(--text)', fontSize: '1rem', fontWeight: 600 },
+  discountValue: { fontSize: '0.85rem', color: '#16a34a', fontWeight: 600 },
+  totalLabel: { fontSize: '0.85rem', color: 'var(--text-h)', fontWeight: 700 },
   features: {
     listStyle: 'none',
     padding: 0,

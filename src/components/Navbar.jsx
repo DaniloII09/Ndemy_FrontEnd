@@ -64,6 +64,14 @@ export default function Navbar() {
           >
             Explorar
           </Link>
+          {isAuthenticated && user?.role === 'STUDENT' && (
+            <Link
+              to="/my-courses"
+              style={{ ...s.link, ...(isActive('/my-courses') ? s.linkActive : {}) }}
+            >
+              Mis cursos
+            </Link>
+          )}
           {isAuthenticated && (
             <Link
               to={dashboardPath}
@@ -122,6 +130,20 @@ export default function Navbar() {
                   >
                     <span>👤</span> Mi perfil
                   </button>
+
+                  {user.role === 'STUDENT' && (
+                    <>
+                      <button onClick={() => { navigate('/my-courses'); setMenuOpen(false); }} style={s.dropItem}>
+                        <span>📖</span> Mis cursos
+                      </button>
+                      <button onClick={() => { navigate('/certificates'); setMenuOpen(false); }} style={s.dropItem}>
+                        <span>🏅</span> Mis certificados
+                      </button>
+                      <button onClick={() => { navigate('/profile'); setMenuOpen(false); }} style={s.dropItem}>
+                        <span>⚙️</span> Editar perfil
+                      </button>
+                    </>
+                  )}
 
                   <hr style={s.divider} />
 

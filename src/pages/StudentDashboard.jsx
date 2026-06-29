@@ -1,12 +1,7 @@
+import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-
-const STATS = [
-  { label: 'Cursos inscritos', value: '—', icon: '📚' },
-  { label: 'Lecciones completadas', value: '—', icon: '✅' },
-  { label: 'Certificados', value: '—', icon: '🏆' },
-  { label: 'Horas aprendidas', value: '—', icon: '⏱️' },
-];
+import { getMyEnrolledCoursesApi, getMyCertificatesApi } from '../api/student';
 
 const QUICK_LINKS = [
   { label: 'Explorar cursos',      icon: '🔍', to: '/courses',   desc: 'Descubre nuevos temas' },
@@ -18,6 +13,30 @@ const QUICK_LINKS = [
 export default function StudentDashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
+
+  const [courses, setCourses] = useState([]);
+  const [certs, setCerts] = useState([]);
+
+  useEffect(() => {
+    let active = true;
+    Promise.allSettled([getMyEnrolledCoursesApi(), getMyCertificatesApi()])
+      .then(([c, cert]) => {
+        if (!active) return;
+        if (c.status === 'fulfilled' && Array.isArray(c.value)) setCourses(c.value);
+        if (cert.status === 'fulfilled' && Array.isArray(cert.value)) setCerts(cert.value);
+      });
+    return () => { active = false; };
+  }, []);
+
+  const completedLessons = courses.reduce((acc, c) => acc + (c.completedLessons?.length ?? 0), 0);
+  const completedCourses = courses.filter(c => c.isCompleted).length;
+
+  const STATS = [
+    { label: 'Cursos inscritos', value: courses.length, icon: '📚' },
+    { label: 'Lecciones completadas', value: completedLessons, icon: '✅' },
+    { label: 'Certificados', value: certs.length, icon: '🏆' },
+    { label: 'Cursos completados', value: completedCourses, icon: '🎯' },
+  ];
 
   const hour = new Date().getHours();
   const greeting =

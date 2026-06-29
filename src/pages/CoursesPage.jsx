@@ -14,8 +14,8 @@ function CourseCard({ course, onClick }) {
         <p style={cardStyles.description}>{course.description}</p>
         <div style={cardStyles.footer}>
           <div style={cardStyles.meta}>
-            <span style={cardStyles.rating}>⭐ {course.rating}</span>
-            <span style={cardStyles.students}>· {course.totalStudents.toLocaleString()} estudiantes</span>
+            <span style={cardStyles.rating}>⭐ {course.rating != null ? course.rating : 'Nuevo'}</span>
+            <span style={cardStyles.students}>· {(course.totalStudents ?? 0).toLocaleString()} estudiantes</span>
           </div>
           <span style={cardStyles.price}>${course.price}</span>
         </div>
@@ -35,27 +35,40 @@ export default function CoursesPage() {
 
   const navigate = useNavigate();
 
-  const fetchCourses = async () => {
-    setIsLoading(true);
-    try {
-      const data = await getCoursesApi({ search, category, page });
-      setCourses(data.content);
-      setTotalPages(data.totalPages);
-    } catch (err) {
-      console.error('Error cargando cursos:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
+  // Debounce: el texto de búsqueda se aplica solo (no hace falta presionar "Buscar")
   useEffect(() => {
-    fetchCourses();
+    const t = setTimeout(() => {
+      setSearch(searchInput.trim());
+      setPage(0);
+    }, 350);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  // Carga de cursos: corre en el montaje y cada vez que cambia un filtro.
+  // Usa un guard para descartar respuestas obsoletas (evita parpadeos/vacíos).
+  useEffect(() => {
+    let active = true;
+    setIsLoading(true);
+    getCoursesApi({ search, category, page })
+      .then(data => {
+        if (!active) return;
+        setCourses(data?.content ?? []);
+        setTotalPages(data?.totalPages ?? 0);
+      })
+      .catch(err => {
+        if (!active) return;
+        console.error('Error cargando cursos:', err);
+        setCourses([]);
+        setTotalPages(0);
+      })
+      .finally(() => { if (active) setIsLoading(false); });
+    return () => { active = false; };
   }, [search, category, page]);
 
   const handleSearch = (e) => {
     e.preventDefault();
+    setSearch(searchInput.trim());
     setPage(0);
-    setSearch(searchInput);
   };
 
   const handleCategory = (value) => {

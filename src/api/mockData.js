@@ -317,8 +317,8 @@ export const MOCK_COURSE_DETAIL = {
 
 export const MOCK_CATEGORIES = [
   { value: '', label: 'Todas las categorías' },
-  { value: 'PROGRAMACION', label: 'Programación' },
-  { value: 'DISENO', label: 'Diseño' },
-  { value: 'DATA', label: 'Data Science' },
-  { value: 'MARKETING', label: 'Marketing' },
+  { value: 'Programación', label: 'Programación' },
+  { value: 'Diseño', label: 'Diseño' },
+  { value: 'Data Science', label: 'Data Science' },
+  { value: 'Marketing', label: 'Marketing' },
 ];
