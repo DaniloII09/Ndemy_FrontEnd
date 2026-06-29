@@ -1,7 +1,29 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getCourseDetailApi } from '../api/courses';
+import { getCourseReviewsApi, createReviewApi, updateReviewApi, deleteReviewApi } from '../api/reviews';
 import { useAuth } from '../context/AuthContext';
+
+function Stars({ value = 0, size = '1rem', onSelect = null }) {
+  return (
+    <span style={{ display: 'inline-flex', gap: '2px' }}>
+      {[1, 2, 3, 4, 5].map(n => (
+        <span
+          key={n}
+          onClick={onSelect ? () => onSelect(n) : undefined}
+          style={{
+            fontSize: size,
+            color: n <= value ? '#f59e0b' : '#d1d5db',
+            cursor: onSelect ? 'pointer' : 'default',
+            lineHeight: 1,
+          }}
+        >
+          ★
+        </span>
+      ))}
+    </span>
+  );
+}
 
 function ModuleAccordion({ module, isEnrolled, onLessonClick }) {
   const [isOpen, setIsOpen] = useState(true);
@@ -56,6 +78,19 @@ export default function CourseDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
+  // Reseñas
+  const [reviews, setReviews] = useState([]);
+  const [rForm, setRForm] = useState({ rating: 0, comment: '' });
+  const [rSubmitting, setRSubmitting] = useState(false);
+  const [rError, setRError] = useState('');
+  const [editingReview, setEditingReview] = useState(false);
+
+  const loadReviews = () => {
+    getCourseReviewsApi(id)
+      .then(data => setReviews(Array.isArray(data) ? data : []))
+      .catch(() => setReviews([]));
+  };
+
   useEffect(() => {
     const fetchDetail = async () => {
       setIsLoading(true);
@@ -69,6 +104,7 @@ export default function CourseDetailPage() {
       }
     };
     fetchDetail();
+    loadReviews();
   }, [id]);
 
   const handleLessonClick = (lesson) => {
@@ -112,6 +148,59 @@ export default function CourseDetailPage() {
   const isEnrolled = isAuthenticated && course.isEnrolled === true;
   const isOwner = isAuthenticated && !!user && course.instructorId === user.id;
 
+  const myReview = user ? reviews.find(r => r.studentId === user.id) : null;
+  const canReview = isEnrolled && user?.role === 'STUDENT';
+
+  const startEdit = () => {
+    setEditingReview(true);
+    setRForm({ rating: myReview.rating, comment: myReview.comment ?? '' });
+    setRError('');
+  };
+
+  const submitReview = async () => {
+    setRError('');
+    if (!rForm.rating) { setRError('Selecciona una calificación de 1 a 5 estrellas.'); return; }
+    setRSubmitting(true);
+    try {
+      if (myReview && editingReview) {
+        await updateReviewApi(myReview.id, { rating: rForm.rating, comment: rForm.comment });
+      } else {
+        await createReviewApi(id, { rating: rForm.rating, comment: rForm.comment });
+      }
+      setRForm({ rating: 0, comment: '' });
+      setEditingReview(false);
+      loadReviews();
+      // refresca el rating promedio del curso
+      getCourseDetailApi(id).then(setCourse).catch(() => {});
+    } catch (e) {
+      setRError(e.response?.data?.message ?? 'No se pudo guardar la reseña.');
+    } finally {
+      setRSubmitting(false);
+    }
+  };
+
+  const removeReview = async () => {
+    if (!myReview) return;
+    setRSubmitting(true);
+    try {
+      await deleteReviewApi(myReview.id);
+      setEditingReview(false);
+      setRForm({ rating: 0, comment: '' });
+      loadReviews();
+      getCourseDetailApi(id).then(setCourse).catch(() => {});
+    } catch (e) {
+      setRError(e.response?.data?.message ?? 'No se pudo eliminar la reseña.');
+    } finally {
+      setRSubmitting(false);
+    }
+  };
+
+  const formatDate = (iso) => {
+    if (!iso) return '';
+    try { return new Date(iso).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' }); }
+    catch { return ''; }
+  };
+
   return (
     <div style={styles.page}>
       {/* Botón volver */}
@@ -145,6 +234,72 @@ export default function CourseDetailPage() {
               onLessonClick={handleLessonClick}
             />
           ))}
+
+          {/* Reseñas */}
+          <h2 style={{ ...styles.sectionTitle, marginTop: '2.5rem' }}>
+            Reseñas {reviews.length > 0 && <span style={styles.reviewCount}>({reviews.length})</span>}
+          </h2>
+
+          {/* Formulario / mi reseña */}
+          {canReview && (!myReview || editingReview) && (
+            <div style={styles.reviewForm}>
+              <p style={styles.reviewFormTitle}>
+                {editingReview ? 'Edita tu reseña' : '¿Qué te pareció el curso?'}
+              </p>
+              <Stars value={rForm.rating} size="1.6rem" onSelect={(n) => setRForm(f => ({ ...f, rating: n }))} />
+              <textarea
+                style={styles.reviewTextarea}
+                value={rForm.comment}
+                onChange={e => setRForm(f => ({ ...f, comment: e.target.value }))}
+                placeholder="Comparte tu opinión (opcional)"
+              />
+              {rError && <p style={styles.reviewError}>{rError}</p>}
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button style={styles.reviewSubmit} onClick={submitReview} disabled={rSubmitting}>
+                  {rSubmitting ? 'Guardando...' : editingReview ? 'Guardar cambios' : 'Publicar reseña'}
+                </button>
+                {editingReview && (
+                  <button style={styles.reviewCancel} onClick={() => { setEditingReview(false); setRForm({ rating: 0, comment: '' }); }}>
+                    Cancelar
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {canReview && myReview && !editingReview && (
+            <div style={styles.myReviewBox}>
+              <p style={styles.reviewFormTitle}>Tu reseña</p>
+              <Stars value={myReview.rating} />
+              {myReview.comment && <p style={styles.reviewComment}>{myReview.comment}</p>}
+              <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
+                <button style={styles.reviewLink} onClick={startEdit}>Editar</button>
+                <button style={{ ...styles.reviewLink, color: '#dc2626' }} onClick={removeReview} disabled={rSubmitting}>Eliminar</button>
+              </div>
+            </div>
+          )}
+
+          {isAuthenticated && !isEnrolled && !isOwner && (
+            <p style={styles.reviewHint}>Debes inscribirte en el curso para dejar una reseña.</p>
+          )}
+
+          {/* Lista de reseñas */}
+          {reviews.length === 0 ? (
+            <p style={styles.reviewHint}>Este curso aún no tiene reseñas.</p>
+          ) : (
+            <div style={styles.reviewList}>
+              {reviews.map(r => (
+                <div key={r.id} style={styles.reviewItem}>
+                  <div style={styles.reviewItemHead}>
+                    <span style={styles.reviewAuthor}>{r.studentName}</span>
+                    <span style={styles.reviewDate}>{formatDate(r.createdAt)}</span>
+                  </div>
+                  <Stars value={r.rating} size="0.9rem" />
+                  {r.comment && <p style={styles.reviewComment}>{r.comment}</p>}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Sidebar */}
@@ -217,6 +372,22 @@ const styles = {
   ownerBox: { background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '0.75rem 0.9rem', marginBottom: '1rem' },
   ownerTitle: { fontSize: '0.85rem', fontWeight: 700, color: '#1a1a1a', margin: '0 0 0.4rem' },
   ownerLine: { fontSize: '0.8rem', color: '#555', margin: '0.2rem 0' },
+  reviewCount: { color: '#888', fontWeight: 500, fontSize: '1rem' },
+  reviewForm: { background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '12px', padding: '1.25rem', marginBottom: '1.5rem' },
+  reviewFormTitle: { fontSize: '0.95rem', fontWeight: 600, color: '#1a1a1a', margin: '0 0 0.6rem' },
+  reviewTextarea: { width: '100%', minHeight: '70px', marginTop: '0.75rem', padding: '0.65rem 0.85rem', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '0.9rem', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit' },
+  reviewError: { color: '#dc2626', fontSize: '0.82rem', margin: '0.5rem 0' },
+  reviewSubmit: { padding: '0.6rem 1.25rem', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontSize: '0.875rem', marginTop: '0.75rem' },
+  reviewCancel: { padding: '0.6rem 1.1rem', background: 'transparent', color: '#555', border: '1px solid #e5e7eb', borderRadius: '8px', fontWeight: 500, cursor: 'pointer', fontSize: '0.875rem', marginTop: '0.75rem' },
+  myReviewBox: { background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '12px', padding: '1.25rem', marginBottom: '1.5rem' },
+  reviewLink: { background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, padding: 0 },
+  reviewHint: { color: '#888', fontSize: '0.9rem', margin: '0.5rem 0 1.5rem' },
+  reviewList: { display: 'flex', flexDirection: 'column', gap: '1rem' },
+  reviewItem: { borderBottom: '1px solid #f0f0f0', paddingBottom: '1rem' },
+  reviewItemHead: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.3rem' },
+  reviewAuthor: { fontWeight: 600, fontSize: '0.9rem', color: '#1a1a1a' },
+  reviewDate: { fontSize: '0.78rem', color: '#999' },
+  reviewComment: { fontSize: '0.9rem', color: '#444', margin: '0.4rem 0 0', lineHeight: 1.6 },
   featureList: { listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '0.6rem', fontSize: '0.875rem', color: '#555' },
 };
 
