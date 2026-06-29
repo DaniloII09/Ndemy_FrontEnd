@@ -7,7 +7,11 @@ import {
   updateCourseApi,
   getCourseDetailApi,
   createModuleApi,
+  updateModuleApi,
+  deleteModuleApi,
   createLessonApi,
+  updateLessonApi,
+  deleteLessonApi,
   publishCourseApi,
 } from '../api/courses';
 import { createExamApi, createQuestionApi, createOptionApi } from '../api/exams';
@@ -360,6 +364,78 @@ function EditCourseModal({ courseId, onClose, onUpdated }) {
     } finally { setSaving(false); }
   };
 
+  // -- Edicion de modulos/lecciones existentes --
+  const [editMods, setEditMods] = useState([]);
+  useEffect(() => {
+    setEditMods((course?.modules ?? []).map(mm => ({
+      id: mm.id, title: mm.title, orderIndex: mm.orderIndex,
+      lessons: (mm.lessons ?? []).map(ll => ({
+        id: ll.id, title: ll.title, contentType: ll.contentType,
+        contentUrl: ll.contentUrl ?? '', orderIndex: ll.orderIndex,
+      })),
+    })));
+  }, [course]);
+
+  const setEMTitle = (mi, v) => setEditMods(ms => ms.map((x, j) => j === mi ? { ...x, title: v } : x));
+  const setEMLesson = (mi, li, k, v) => setEditMods(ms => ms.map((x, j) => j !== mi ? x : { ...x, lessons: x.lessons.map((l, k2) => k2 !== li ? l : { ...l, [k]: v }) }));
+
+  const refreshCourse = async () => {
+    const fresh = await getCourseDetailApi(courseId);
+    setCourse(fresh);
+  };
+
+  const saveExistingModule = async (mi) => {
+    const mod = editMods[mi];
+    if (!mod.title.trim()) { setError('El modulo necesita un titulo.'); return; }
+    setError(''); setOk(''); setSaving(true);
+    try {
+      await updateModuleApi(mod.id, { title: mod.title, orderIndex: mod.orderIndex });
+      setOk('✅ Modulo actualizado.');
+      await refreshCourse();
+    } catch (e) {
+      setError(e.response?.data?.message ?? 'No se pudo actualizar el modulo.');
+    } finally { setSaving(false); }
+  };
+
+  const deleteExistingModule = async (mi) => {
+    const mod = editMods[mi];
+    if (!window.confirm('¿Eliminar este modulo y sus lecciones?')) return;
+    setError(''); setOk(''); setSaving(true);
+    try {
+      await deleteModuleApi(mod.id);
+      setOk('✅ Modulo eliminado.');
+      await refreshCourse();
+    } catch (e) {
+      setError(e.response?.data?.message ?? 'No se pudo eliminar el modulo.');
+    } finally { setSaving(false); }
+  };
+
+  const saveExistingLesson = async (mi, li) => {
+    const les = editMods[mi].lessons[li];
+    if (!les.title.trim()) { setError('La leccion necesita un titulo.'); return; }
+    setError(''); setOk(''); setSaving(true);
+    try {
+      await updateLessonApi(les.id, { title: les.title, contentType: les.contentType, contentUrl: les.contentUrl || null, orderIndex: les.orderIndex });
+      setOk('✅ Leccion actualizada.');
+      await refreshCourse();
+    } catch (e) {
+      setError(e.response?.data?.message ?? 'No se pudo actualizar la leccion.');
+    } finally { setSaving(false); }
+  };
+
+  const deleteExistingLesson = async (mi, li) => {
+    const les = editMods[mi].lessons[li];
+    if (!window.confirm('¿Eliminar esta leccion?')) return;
+    setError(''); setOk(''); setSaving(true);
+    try {
+      await deleteLessonApi(les.id);
+      setOk('✅ Leccion eliminada.');
+      await refreshCourse();
+    } catch (e) {
+      setError(e.response?.data?.message ?? 'No se pudo eliminar la leccion.');
+    } finally { setSaving(false); }
+  };
+
   const addNewModule = () => setNewModules(ms => [...ms, { title: '', lessons: [{ title: '', contentType: 'VIDEO', contentUrl: '' }] }]);
   const setNMTitle = (i, v) => setNewModules(ms => ms.map((x, j) => j === i ? { ...x, title: v } : x));
   const addNMLesson = (mi) => setNewModules(ms => ms.map((x, j) => j === mi ? { ...x, lessons: [...x.lessons, { title: '', contentType: 'VIDEO', contentUrl: '' }] } : x));
@@ -495,13 +571,30 @@ function EditCourseModal({ courseId, onClose, onUpdated }) {
               {tab === 'contenido' && (
                 <div>
                   <p style={m.hint}>Módulos actuales del curso:</p>
-                  {(course?.modules ?? []).length === 0 ? (
+                  {editMods.length === 0 ? (
                     <p style={{ ...m.hint, color: '#9ca3af' }}>Este curso aún no tiene módulos.</p>
                   ) : (
-                    course.modules.map((mod, i) => (
+                    editMods.map((mod, mi) => (
                       <div key={mod.id} style={m.moduleCard}>
-                        <span style={m.moduleNum}>{i + 1}. {mod.title}</span>
-                        <p style={{ ...m.hint, margin: '0.35rem 0 0' }}>{(mod.lessons ?? []).length} lección(es)</p>
+                        <div style={m.moduleHeader}>
+                          <span style={m.moduleNum}>{mi + 1}.</span>
+                          <input style={{ ...m.input, flex: 1, marginBottom: 0 }} value={mod.title} onChange={e => setEMTitle(mi, e.target.value)} placeholder="Título del módulo" />
+                          <button onClick={() => saveExistingModule(mi)} disabled={saving} style={m.addLessonBtn}>Guardar</button>
+                          <button onClick={() => deleteExistingModule(mi)} disabled={saving} style={m.removeBtn}>✕</button>
+                        </div>
+                        {mod.lessons.map((les, li) => (
+                          <div key={les.id} style={m.lessonRow}>
+                            <input style={{ ...m.input, flex: 2, marginBottom: 0 }} value={les.title} onChange={e => setEMLesson(mi, li, 'title', e.target.value)} placeholder="Título de la lección" />
+                            <select style={{ ...m.input, marginBottom: 0 }} value={les.contentType} onChange={e => setEMLesson(mi, li, 'contentType', e.target.value)}>
+                              <option value="VIDEO">VIDEO</option>
+                              <option value="PDF">PDF</option>
+                              <option value="QUIZ">QUIZ</option>
+                            </select>
+                            <input style={{ ...m.input, flex: 2, marginBottom: 0 }} value={les.contentUrl} onChange={e => setEMLesson(mi, li, 'contentUrl', e.target.value)} placeholder="URL del contenido" />
+                            <button onClick={() => saveExistingLesson(mi, li)} disabled={saving} style={m.addLessonBtn}>Guardar</button>
+                            <button onClick={() => deleteExistingLesson(mi, li)} disabled={saving} style={m.removeBtn}>✕</button>
+                          </div>
+                        ))}
                       </div>
                     ))
                   )}
