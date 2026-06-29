@@ -13,8 +13,9 @@ import {
   updateLessonApi,
   deleteLessonApi,
   publishCourseApi,
+  getInstructorCourseStudentsApi,
 } from '../api/courses';
-import { createExamApi, createQuestionApi, createOptionApi } from '../api/exams';
+import { createExamApi, createQuestionApi, createOptionApi, getExamApi, updateExamApi, updateQuestionApi, deleteQuestionApi, updateOptionApi, deleteOptionApi } from '../api/exams';
 import { getAllCouponsApi, createCouponApi, updateCouponApi, deactivateCouponApi } from '../api/coupons';
 import { getInstructorRevenueReportApi } from '../api/reports';
 
@@ -320,6 +321,10 @@ function EditCourseModal({ courseId, onClose, onUpdated }) {
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const [newModules, setNewModules] = useState([]);
+  const [examEdit, setExamEdit] = useState(null);
+  const [examLoading, setExamLoading] = useState(false);
+  const [students, setStudents] = useState([]);
+  const [studentsLoading, setStudentsLoading] = useState(false);
   const [exam, setExam] = useState({ passingScore: 70, timeLimitMinutes: '', questions: [] });
 
   useEffect(() => {
@@ -473,6 +478,144 @@ function EditCourseModal({ courseId, onClose, onUpdated }) {
   const setOptionText = (qi, oi, v) => setExam(e => ({ ...e, questions: e.questions.map((q, i) => i !== qi ? q : { ...q, options: q.options.map((o, k) => k === oi ? { ...o, text: v } : o) }) }));
   const setCorrect = (qi, oi) => setExam(e => ({ ...e, questions: e.questions.map((q, i) => i !== qi ? q : { ...q, options: q.options.map((o, k) => ({ ...o, isCorrect: k === oi })) }) }));
 
+  const loadExam = async () => {
+    setExamLoading(true);
+    try {
+      const ex = await getExamApi(courseId);
+      setExamEdit(ex ? {
+        id: ex.id,
+        passingScore: ex.passingScore,
+        timeLimitMinutes: ex.timeLimitMinutes ?? '',
+        questions: (ex.questions ?? []).map(q => ({
+          id: q.id, text: q.text, orderIndex: q.orderIndex,
+          options: (q.options ?? []).map(o => ({ id: o.id, text: o.text, isCorrect: !!o.isCorrect })),
+        })),
+      } : null);
+    } catch {
+      setError('No se pudo cargar el examen.');
+    } finally { setExamLoading(false); }
+  };
+
+  const loadStudents = async () => {
+    setStudentsLoading(true);
+    try {
+      const list = await getInstructorCourseStudentsApi(courseId);
+      setStudents(Array.isArray(list) ? list : []);
+    } catch {
+      setError('No se pudo cargar la lista de inscritos.');
+    } finally { setStudentsLoading(false); }
+  };
+
+  useEffect(() => {
+    if (tab === 'examen' && course?.hasExam) loadExam();
+    if (tab === 'estudiantes') loadStudents();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, course?.hasExam]);
+
+  const setExF = (k, v) => setExamEdit(x => ({ ...x, [k]: v }));
+  const setExQText = (qi, v) => setExamEdit(x => ({ ...x, questions: x.questions.map((q, i) => i === qi ? { ...q, text: v } : q) }));
+  const setExOText = (qi, oi, v) => setExamEdit(x => ({ ...x, questions: x.questions.map((q, i) => i !== qi ? q : { ...q, options: q.options.map((o, k) => k === oi ? { ...o, text: v } : o) }) }));
+
+  const saveExamSettings = async () => {
+    const ps = parseInt(examEdit.passingScore);
+    if (isNaN(ps) || ps < 60 || ps > 100) { setError('La nota minima debe estar entre 60 y 100.'); return; }
+    setError(''); setOk(''); setSaving(true);
+    try {
+      await updateExamApi(courseId, { passingScore: ps, timeLimitMinutes: examEdit.timeLimitMinutes ? parseInt(examEdit.timeLimitMinutes) : null });
+      setOk('\u2705 Configuracion del examen actualizada.');
+      await loadExam();
+    } catch (e) {
+      setError(e.response?.data?.message ?? 'No se pudo actualizar el examen.');
+    } finally { setSaving(false); }
+  };
+
+  const saveQuestion = async (qi) => {
+    const q = examEdit.questions[qi];
+    if (!q.text.trim()) { setError('La pregunta necesita un enunciado.'); return; }
+    setError(''); setOk(''); setSaving(true);
+    try {
+      await updateQuestionApi(q.id, { text: q.text, orderIndex: q.orderIndex });
+      setOk('\u2705 Pregunta actualizada.');
+      await loadExam();
+    } catch (e) {
+      setError(e.response?.data?.message ?? 'No se pudo actualizar la pregunta.');
+    } finally { setSaving(false); }
+  };
+
+  const delQuestion = async (qi) => {
+    const q = examEdit.questions[qi];
+    if (!window.confirm('\u00bfEliminar esta pregunta?')) return;
+    setError(''); setOk(''); setSaving(true);
+    try {
+      await deleteQuestionApi(q.id);
+      setOk('\u2705 Pregunta eliminada.');
+      await loadExam();
+    } catch (e) {
+      setError(e.response?.data?.message ?? 'No se pudo eliminar la pregunta.');
+    } finally { setSaving(false); }
+  };
+
+  const addExQuestion = async () => {
+    setError(''); setOk(''); setSaving(true);
+    try {
+      const q = await createQuestionApi(examEdit.id, { text: 'Nueva pregunta', orderIndex: examEdit.questions.length });
+      await createOptionApi(q.id, { text: 'Opcion 1', isCorrect: true });
+      await createOptionApi(q.id, { text: 'Opcion 2', isCorrect: false });
+      setOk('\u2705 Pregunta agregada. Edita su texto y opciones.');
+      await loadExam();
+    } catch (e) {
+      setError(e.response?.data?.message ?? 'No se pudo agregar la pregunta.');
+    } finally { setSaving(false); }
+  };
+
+  const saveOption = async (qi, oi) => {
+    const o = examEdit.questions[qi].options[oi];
+    if (!o.text.trim()) { setError('La opcion necesita texto.'); return; }
+    setError(''); setOk(''); setSaving(true);
+    try {
+      await updateOptionApi(o.id, { text: o.text, isCorrect: o.isCorrect });
+      setOk('\u2705 Opcion actualizada.');
+      await loadExam();
+    } catch (e) {
+      setError(e.response?.data?.message ?? 'No se pudo actualizar la opcion.');
+    } finally { setSaving(false); }
+  };
+
+  const setExCorrect = async (qi, oi) => {
+    const o = examEdit.questions[qi].options[oi];
+    setError(''); setOk(''); setSaving(true);
+    try {
+      await updateOptionApi(o.id, { text: o.text, isCorrect: true });
+      await loadExam();
+    } catch (e) {
+      setError(e.response?.data?.message ?? 'No se pudo marcar la opcion.');
+    } finally { setSaving(false); }
+  };
+
+  const addExOption = async (qi) => {
+    const q = examEdit.questions[qi];
+    setError(''); setOk(''); setSaving(true);
+    try {
+      await createOptionApi(q.id, { text: 'Nueva opcion', isCorrect: false });
+      await loadExam();
+    } catch (e) {
+      setError(e.response?.data?.message ?? 'No se pudo agregar la opcion.');
+    } finally { setSaving(false); }
+  };
+
+  const delExOption = async (qi, oi) => {
+    const o = examEdit.questions[qi].options[oi];
+    if (!window.confirm('\u00bfEliminar esta opcion?')) return;
+    setError(''); setOk(''); setSaving(true);
+    try {
+      await deleteOptionApi(o.id);
+      setOk('\u2705 Opcion eliminada.');
+      await loadExam();
+    } catch (e) {
+      setError(e.response?.data?.message ?? 'No se pudo eliminar la opcion (no se puede borrar la correcta).');
+    } finally { setSaving(false); }
+  };
+
   const handleCreateExam = async () => {
     setError(''); setOk('');
     const ps = parseInt(exam.passingScore);
@@ -519,7 +662,7 @@ function EditCourseModal({ courseId, onClose, onUpdated }) {
         </div>
 
         <div style={m.tabs}>
-          {[['datos', 'Datos'], ['contenido', 'Contenido'], ['examen', 'Examen']].map(([k, label]) => (
+          {[['datos', 'Datos'], ['contenido', 'Contenido'], ['examen', 'Examen'], ['estudiantes', 'Inscritos']].map(([k, label]) => (
             <button key={k} onClick={() => { setTab(k); setError(''); setOk(''); }}
               style={{ ...m.tab, ...(tab === k ? m.tabActive : {}) }}>
               {label}{k === 'examen' && course?.hasExam ? ' ✅' : ''}
@@ -628,12 +771,43 @@ function EditCourseModal({ courseId, onClose, onUpdated }) {
 
               {tab === 'examen' && (
                 course?.hasExam ? (
-                  <div style={m.moduleCard}>
-                    <p style={{ margin: 0, fontWeight: 600, color: '#16a34a' }}>✅ Este curso ya tiene examen configurado.</p>
-                    <p style={{ ...m.hint, margin: '0.4rem 0 0' }}>
-                      Aquí solo se crea el examen cuando falta. La edición de preguntas existentes se gestiona aparte.
-                    </p>
+                  examLoading || !examEdit ? (
+                    <p style={m.hint}>Cargando examen...</p>
+                  ) : (
+                  <div>
+                    <div style={m.grid2}>
+                      <div>
+                        <label style={m.label}>Nota mínima (%) <span style={m.req}>*</span></label>
+                        <input style={m.input} type="number" min="60" max="100" value={examEdit.passingScore ?? ''} onChange={e => setExF('passingScore', e.target.value)} />
+                      </div>
+                      <div>
+                        <label style={m.label}>Tiempo límite (min, opcional)</label>
+                        <input style={m.input} type="number" min="5" max="300" value={examEdit.timeLimitMinutes ?? ''} onChange={e => setExF('timeLimitMinutes', e.target.value)} />
+                      </div>
+                    </div>
+                    <button onClick={saveExamSettings} disabled={saving} style={m.addModuleBtn}>Guardar configuración</button>
+                    {examEdit.questions.map((q, qi) => (
+                      <div key={q.id} style={m.moduleCard}>
+                        <div style={m.moduleHeader}>
+                          <span style={m.moduleNum}>Pregunta {qi + 1}</span>
+                          <input style={{ ...m.input, flex: 1, marginBottom: 0 }} value={q.text} onChange={e => setExQText(qi, e.target.value)} placeholder="Enunciado" />
+                          <button onClick={() => saveQuestion(qi)} disabled={saving} style={m.addLessonBtn}>Guardar</button>
+                          <button onClick={() => delQuestion(qi)} disabled={saving} style={m.removeBtn}>✕</button>
+                        </div>
+                        {q.options.map((o, oi) => (
+                          <div key={o.id} style={m.lessonRow}>
+                            <button onClick={() => setExCorrect(qi, oi)} title="Marcar correcta" style={{ ...m.correctDot, ...(o.isCorrect ? m.correctDotOn : {}) }}>{o.isCorrect ? '●' : '○'}</button>
+                            <input style={{ ...m.input, flex: 1, marginBottom: 0 }} value={o.text} onChange={e => setExOText(qi, oi, e.target.value)} placeholder={`Opción ${oi + 1}`} />
+                            <button onClick={() => saveOption(qi, oi)} disabled={saving} style={m.addLessonBtn}>Guardar</button>
+                            {q.options.length > 2 && <button onClick={() => delExOption(qi, oi)} disabled={saving} style={m.removeBtn}>✕</button>}
+                          </div>
+                        ))}
+                        <button onClick={() => addExOption(qi)} disabled={saving} style={m.addLessonBtn}>+ Opción</button>
+                      </div>
+                    ))}
+                    <button onClick={addExQuestion} disabled={saving} style={m.addModuleBtn}>+ Agregar pregunta</button>
                   </div>
+                  )
                 ) : (
                   <div>
                     <p style={m.hint}>Este curso <strong>no tiene examen</strong>. Créalo aquí para poder publicarlo.</p>
@@ -667,6 +841,31 @@ function EditCourseModal({ courseId, onClose, onUpdated }) {
                     <button onClick={addQuestion} style={m.addModuleBtn}>+ Agregar pregunta</button>
                   </div>
                 )
+              )}
+
+              {tab === 'estudiantes' && (
+                <div>
+                  <p style={m.hint}>Estudiantes inscritos en este curso:</p>
+                  {studentsLoading ? <p style={m.hint}>Cargando...</p> : (
+                    students.length === 0 ? <p style={{ ...m.hint, color: '#9ca3af' }}>Aún no hay estudiantes inscritos.</p> : (
+                      students.map(st => (
+                        <div key={st.studentId} style={m.moduleCard}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
+                            <div>
+                              <span style={m.moduleNum}>{st.studentName}</span>
+                              <p style={{ ...m.hint, margin: '0.2rem 0 0' }}>{st.studentEmail}</p>
+                            </div>
+                            <div style={{ textAlign: 'right', fontSize: '0.82rem', color: '#374151' }}>
+                              <p style={{ margin: 0 }}>Progreso: <strong>{Math.round(st.progress ?? 0)}%</strong>{st.isCompleted ? ' ✅' : ''}</p>
+                              <p style={{ margin: '0.2rem 0 0' }}>Examen: {st.examPassed ? 'Aprobado' : 'Pendiente'} · Intentos: {st.examAttemptsUsed ?? 0}{st.bestScore != null ? ` · Mejor: ${st.bestScore}` : ''}</p>
+                              <p style={{ margin: '0.2rem 0 0', color: '#9ca3af' }}>Inscrito: {st.enrolledAt ? new Date(st.enrolledAt).toLocaleDateString('es-SV') : '—'}</p>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )
+                  )}
+                </div>
               )}
             </>
           )}
